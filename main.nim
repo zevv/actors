@@ -6,7 +6,7 @@ import actor
 type
 
   MyMsg = ref object of Message
-    a, b: int
+    val: int
 
 
 proc receiver(a: Actor) {.nimcall, thread, gcsafe.} =
