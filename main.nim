@@ -13,16 +13,24 @@ type
 
 
 proc receiver(a: Actor) {.nimcall, thread, gcsafe.} =
+
   let m = a.recv()
-  let sum = m.MQuestion.a + m.MQuestion.b
-  a.send(m.src, Manswer(sum: sum))
+
+  if m of MQuestion:
+    echo "got question"
+    let sum = m.MQuestion.a + m.MQuestion.b
+    a.send(m.src, Manswer(sum: sum))
 
 
 proc sender(a: Actor) {.nimcall, thread, gcsafe.} =
+
   let m = MQuestion(a: 10, b:5)
   a.send("receiver", m)
+
   let ma = a.recv()
-  echo ma.MAnswer.sum
+
+  if ma of MAnswer:
+    echo ma.MAnswer.sum
 
 
 

@@ -1,7 +1,6 @@
 
 import tables
 import std/locks
-import os
 import isisolated
 
 
