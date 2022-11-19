@@ -38,7 +38,7 @@ proc send*(name: string, m: sink Message) =
   verifyIsolated(m)
   # Look up the actor in the global `actors` table. `actors` is owned by the
   # main thread so we need a gcsafe cast and cursor to be able to be able to
-  # use it and not touch its RC
+  # use it and make sure the calling thread does not touch the RC.
   {.cast(gcsafe).}:
     var dst {.cursor.}: Actor
     withLock pool.lock:
