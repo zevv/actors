@@ -5,23 +5,25 @@ import actor
 
 type
 
-  MyMsg = ref object of Message
-    val: int
+  MQuestion = ref object of Message
+    a, b: int
+  
+  MAnswer = ref object of Message
+    sum: int
 
 
 proc receiver(a: Actor) {.nimcall, thread, gcsafe.} =
-  for i in 1..3:
-    echo "pre recv"
-    let m = a.recv()
-    if m is MyMsg:
-      echo m.MyMsg.val
+  let m = a.recv()
+  let sum = m.MQuestion.a + m.MQuestion.b
+  a.send(m.src, Manswer(sum: sum))
 
 
 proc sender(a: Actor) {.nimcall, thread, gcsafe.} =
-  for i in 1..3:
-    let m = MyMsg(val: 32)
-    send("receiver", m)
-    sleep(100)
+  let m = MQuestion(a: 10, b:5)
+  a.send("receiver", m)
+  let ma = a.recv()
+  echo ma.MAnswer.sum
+
 
 
 

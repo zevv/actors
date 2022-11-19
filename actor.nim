@@ -10,8 +10,10 @@ type
   # orc can not handle data that has been moved over threads, so mark
   # the message as acyclic to keep orcs hands off it
   Message* {.acyclic.} = ref object of RootObj
+    src*: string
 
   Actor* = ref object
+    name: string
     thread: Thread[Actor]
     mailbox: Channel[Message]
 
@@ -26,14 +28,16 @@ var pool: ActorPool
 
 
 proc spawn*(name: string, fn: ActorProc) =
-  let a = Actor()
+  let a = Actor(name: name)
   a.mailbox.open()
   createThread(a.thread, fn, a)
   withLock pool.lock:
     pool.actors[name] = a
 
 
-proc send*(name: string, m: sink Message) =
+proc send*(a: Actor, name: string, m: sink Message) =
+  # Set the source name of the message
+  m.src = a.name
   # It is only safe to send the message if ours is the only reference to it
   verifyIsolated(m)
   # Look up the actor in the global `actors` table. `actors` is owned by the
@@ -52,7 +56,6 @@ proc send*(name: string, m: sink Message) =
 
 
 proc recv*(a: Actor): Message =
-  echo "recv"
   result = a.mailbox.recv()
 
 
