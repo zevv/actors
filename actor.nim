@@ -44,10 +44,11 @@ proc send*(name: string, m: sink Message) =
     withLock pool.lock:
       if name in pool.actors:
         dst = pool.actors[name]
-        dst.mailbox.send(m)
-        # Tell nim that the object moved away and it should not touch the RC
-        # after this anymore
-        wasmoved(m)
+    if dst != nil:
+      dst.mailbox.send(m)
+      # Tell nim that the object moved away and it should not touch the RC
+      # after this anymore
+      wasmoved(m)
 
 
 proc recv*(a: Actor): Message =
