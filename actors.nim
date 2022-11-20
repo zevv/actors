@@ -72,6 +72,7 @@ proc recv*(a: Actor): Message =
 
 
 proc joinAll*() =
-  for _, a in pool.actors:
-    a.thread.joinThread()
+  withRlock pool.lock:
+    for _, a in pool.actors:
+      a.thread.joinThread()
 

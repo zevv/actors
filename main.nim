@@ -40,12 +40,13 @@ proc sender(a: Actor) {.nimcall, thread, gcsafe.} =
     echo "sender: got answer"
     echo ma.MAnswer.sum
 
+  echo "Sendstop"
   a.send("receiver", MStop())
-
 
 
 spawn("receiver", receiver)
 spawn("sender", sender)
 
+os.sleep(100)
 joinAll()
 
