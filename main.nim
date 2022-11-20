@@ -7,6 +7,7 @@ type
 
   MQuestion = ref object of Message
     a, b: int
+    f: MQuestion
   
   MAnswer = ref object of Message
     sum: int

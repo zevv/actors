@@ -35,6 +35,8 @@ template head(p: pointer): Cell =
   cast[Cell](cast[int](p) -% sizeof(RefHeader))
 
 
+proc isIsolated*[T: ref](v: T): bool
+
 
 # Anything not ref, seq or array is isolated
 
