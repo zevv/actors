@@ -11,27 +11,36 @@ type
   MAnswer = ref object of Message
     sum: int
 
+  MStop = ref object of Message
+
 
 proc receiver(a: Actor) {.nimcall, thread, gcsafe.} =
 
-  let m = a.recv()
+  while true:
 
-  if m of MQuestion:
-    echo "got question"
-    let sum = m.MQuestion.a + m.MQuestion.b
-    a.send(m.src, Manswer(sum: sum))
+    let m = a.recv()
+
+    if m of MQuestion:
+      echo "receiver: got question"
+      let sum = m.MQuestion.a + m.MQuestion.b
+      a.send(m.src, Manswer(sum: sum))
+
+    if m of MStop:
+      echo "receiver: got stop"
+      break
 
 
 proc sender(a: Actor) {.nimcall, thread, gcsafe.} =
 
-  let m = MQuestion(a: 10, b:5)
-  a.send("receiver", m)
+  a.send("receiver", MQuestion(a: 10, b:5))
 
   let ma = a.recv()
 
   if ma of MAnswer:
+    echo "sender: got answer"
     echo ma.MAnswer.sum
 
+  a.send("receiver", MStop())
 
 
 
