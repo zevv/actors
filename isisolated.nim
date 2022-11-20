@@ -1,5 +1,8 @@
 
-# Stolen from lib/system/arc.nim
+# TODO: figure out how to support refs in objects, reordering procs
+#       and adding fwd declarations causes nim to complain about gcsafe
+
+# Defenitions below stolen from lib/system/arc.nim
 
 
 when defined(gcOrc):                                          
@@ -35,7 +38,7 @@ template head(p: pointer): Cell =
 
 # Anything not ref, seq or array is isolated
 
-proc isIsolated*[T: not (ref or seq or array or object)](v: T): bool =
+proc isIsolated*[T: not (ref or seq or array or object or tuple)](v: T): bool =
   #echo "- ", typeof(v), " ", v.repr
   true
 
@@ -52,9 +55,9 @@ proc isIsolated*[T: seq or array](vs: T): bool =
 
 # Iterate all fields of objects
 
-proc isIsolated*[T: object and not ref](v: T): bool =
+proc isIsolated*[T: (object or tuple) and not ref](v: T): bool =
   #echo "- ", v.repr
-  for k, v in fieldPairs(v):
+  for v in fields(v):
     if not isIsolated(v):
       return false
   true
