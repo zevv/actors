@@ -1,6 +1,6 @@
 
 import os
-import actor
+import actors
 
 
 type
