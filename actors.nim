@@ -52,19 +52,27 @@ template ifItIsActorNamed(name: string; body: untyped): untyped =
       if not it.isNil:
         body
 
-proc send*(a: Actor, name: string, m: sink Message) =
+proc sendAux*(a: Actor, name: string, m: sink Message) =
   # Tell nim that the object moved away and it should not touch the RC
   # after this procedure
   defer:
     wasmoved(m)
   # Set the source name of the message
   m.src = a.name
-  # It is only safe to send the message if ours is the only reference to it
-  verifyIsolated(m)
   ifItIsActorNamed name:
     it.mailbox.send(m)
     return
   raise ValueError.newException name & " is dead"
+
+
+# This is not a proc but a template to allow verifyIsolated to inspect the
+# message before it gets converted to the root `Message` type
+
+template send*(a: Actor, name: string, m: typed) =
+  # It is only safe to send the message if ours is the only reference to it
+  verifyIsolated(m)
+  # send message if isolation check succeeds
+  sendAux(a, name, m)
 
 
 proc recv*(a: Actor): Message =
