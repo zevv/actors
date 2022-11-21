@@ -47,6 +47,4 @@ proc sender(a: Actor) {.nimcall, thread, gcsafe.} =
 spawn("receiver", receiver)
 spawn("sender", sender)
 
-os.sleep(1)
 joinAll()
-

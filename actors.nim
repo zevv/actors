@@ -81,7 +81,15 @@ proc recv*(a: Actor): Message =
 
 
 proc joinAll*() =
-  withRlock pool.lock:
-    for _, a in pool.actors:
-      a.thread.joinThread()
-
+  while true:
+    var waitee: Actor
+    withRlock pool.lock:
+      if pool.actors.len == 0:
+        break
+      else:
+        for _, a in pool.actors:
+          waitee = a
+          break
+    waitee.thread.joinThread()
+    withRlock pool.lock:
+      pool.actors.del(waitee.name)
