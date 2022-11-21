@@ -32,7 +32,7 @@ proc spawn*(name: string, fn: ActorProc) =
   a.mailbox.open()
   withRLock pool.lock:
     pool.actors[name] = a
-  createThread(a.thread, fn, a)
+    createThread(a.thread, fn, a)
 
 
 # Look up the actor in the global `actors` table. `actors` is owned by the main
