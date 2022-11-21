@@ -80,5 +80,6 @@ proc isIsolated*[T: ref](v: T): bool =
 
 
 proc verifyIsolated*[T:ref](v: T) =
-  if not isIsolated(v):
-    raise newException(NotIsolatedError, v.repr)
+  {.gcsafe.}:
+    if not isIsolated(v):
+      raise newException(NotIsolatedError, v.repr)
