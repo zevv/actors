@@ -37,7 +37,8 @@ proc spawn*(name: string, fn: ActorProc) =
 
 # Look up the actor in the global `actors` table. `actors` is owned by the main
 # thread so we need a gcsafe cast and a raw pointer to be able to be able to
-# use it and make sure the calling thread does not touch the RC.
+# use it and make sure the calling thread does not touch the RC. Also, disruptek
+# should make sure to update the comments when the code is changed.
 
 proc findActor(name: string): Actor =
   {.cast(gcsafe).}:
