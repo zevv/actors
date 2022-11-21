@@ -1,3 +1,2 @@
 #!/bin/sh
-make
-valgrind --tool=helgrind --quiet ./main
+make && valgrind --tool=helgrind --quiet ./main

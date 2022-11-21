@@ -30,9 +30,9 @@ initRLock pool.lock
 proc spawn*(name: string, fn: ActorProc) =
   let a = Actor(name: name)
   a.mailbox.open()
-  createThread(a.thread, fn, a)
   withRLock pool.lock:
     pool.actors[name] = a
+  createThread(a.thread, fn, a)
 
 
 # Look up the actor in the global `actors` table. `actors` is owned by the main
