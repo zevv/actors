@@ -12,18 +12,18 @@ type
 
   Work = ref object of Continuation
     id: string
-    pool: ptr Pool
+    pool: Pool
 
   Worker = ref object
     id: int
     thread: Thread[Worker]
-    pool: ptr Pool
+    pool: Pool
 
-  Mailbox[T] = object
+  Mailbox[T] = ref object
     lock: Lock
     queue: Deque[T]
 
-  Pool = object
+  Pool = ref object
 
     # All workers in the pool. No lock needed, only main thread touches this
     workers: seq[Worker]
@@ -37,7 +37,7 @@ type
 
     # mailboxes for the actors
     mailhubLock: Lock
-    mailhubTable: Table[string, ptr Mailbox[Message]]
+    mailhubTable: Table[string, Mailbox[Message]]
 
   Message = ref object of Rootobj
     src: string
@@ -50,7 +50,7 @@ proc pass(cFrom, cTo: Work): Work =
 
 
 proc workerThread(worker: Worker) {.thread.} =
-  let pool = worker.pool
+  let pool {.cursor.} = worker.pool
 
   while true:
 
@@ -76,17 +76,16 @@ proc workerThread(worker: Worker) {.thread.} =
           echo &"actor {work.id} has died"
           # Unregister the mailbox for this actor
           withLock pool.mailhubLock:
-            let mailbox = pool.mailhubTable[work.id]
+            let mailbox {.cursor.} = pool.mailhubTable[work.id]
             mailbox.queue.clear()
             pool.mailhubTable.del(work.id)
-            dealloc(mailbox)
 
   echo &"worker {worker.id} stopping"
 
 
 # Create pool with work queue and worker threads
 
-proc newPool(nWorkers: int): ref Pool =
+proc newPool(nWorkers: int): Pool =
 
   var pool = new Pool
   initLock pool.workLock
@@ -94,14 +93,14 @@ proc newPool(nWorkers: int): ref Pool =
 
   for i in 0..<nWorkers:
     var worker = Worker(id: i) # Why the hell can't I ininitialze Worker(id: i, pool: Pool) ?
-    worker.pool = pool[].addr
+    worker.pool = pool
     pool.workers.add worker
     createThread(worker.thread, workerThread, worker)
 
   pool
 
 
-proc run(pool: ref Pool) =
+proc run(pool: Pool) =
 
   while true:
     withLock pool.mailhubLock:
@@ -122,11 +121,11 @@ proc run(pool: ref Pool) =
 
 
 
-proc hatchAux(pool: ref Pool, work: sink Work) =
-  work.pool = pool[].addr
+proc hatchAux(pool: Pool, work: sink Work) =
+  work.pool = pool
 
   # Register a mailbox for the actor
-  let mailbox = create Mailbox[Message]
+  var mailbox = Mailbox[Message]()
   initLock mailbox.lock
   withLock pool.mailhubLock:
     pool.mailhubTable[work.id] = mailbox
@@ -139,7 +138,7 @@ proc hatchAux(pool: ref Pool, work: sink Work) =
 
 
 
-template hatch(pool: ref Pool, workId: string, c: typed) =
+template hatch(pool: Pool, workId: string, c: typed) =
   # Create and initialize the new continuation
   var work = Work(whelp c)
   # TODO verifyIsolated(work)
@@ -151,10 +150,10 @@ proc freeze(work: sink Work): Work {.cpsMagic.} =
   # If this continuation as a message waiting, move it back to the work queue.
   # Otherwise, put it in the sleep queue
   #echo "freeze ", work.id
-  let pool = work.pool
+  let pool {.cursor.} = work.pool
   withLock pool.mailhubLock:
     assert work.id in pool.mailhubTable
-    let mailbox = pool.mailhubTable[work.id]
+    let mailbox {.cursor.} = pool.mailhubTable[work.id]
     withLock pool.workLock:
       if mailbox.queue.len == 0:
         #echo "no mail for ", work.id
@@ -166,7 +165,7 @@ proc freeze(work: sink Work): Work {.cpsMagic.} =
 
 
 proc recvAux(work: Work): Message {.cpsVoodoo.} =
-  let pool = work.pool
+  let pool {.cursor.} = work.pool
   withLock pool.mailhubLock:
     if work.id in pool.mailhubTable:
       let mailbox = pool.mailhubTable[work.id]
@@ -187,7 +186,7 @@ proc sendAux(work: Work, dstId: string, msg: sink Message): Work {.cpsMagic.} =
   echo "  ", work.id, " -> ", dstId
 
   # Find the mailbox for this actor
-  let pool = work.pool
+  let pool {.cursor.} = work.pool
   withLock pool.mailhubLock:
     if work.id in pool.mailhubTable:
       let mailbox = pool.mailhubTable[dstId]
