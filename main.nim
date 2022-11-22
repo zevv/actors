@@ -69,19 +69,17 @@ proc workerThread(worker: Worker) {.thread.} =
     # Trampoline once and push result back on the queue
 
     {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
-
       if not work.fn.isNil:
         #echo "tramp ", work.id, " on worker ", worker.id
         work = trampoline(work)
-        if not isNil(work):
-          if isNil(work.fn):
-            echo &"actor {work.id} has died"
-            # Unregister the mailbox for this actor
-            withLock pool.mailhubLock:
-              let mailbox = pool.mailhubTable[work.id]
-              mailbox.queue.clear()
-              pool.mailhubTable.del(work.id)
-              dealloc(mailbox)
+        if not isNil(work) and isNil(work.fn):
+          echo &"actor {work.id} has died"
+          # Unregister the mailbox for this actor
+          withLock pool.mailhubLock:
+            let mailbox = pool.mailhubTable[work.id]
+            mailbox.queue.clear()
+            pool.mailhubTable.del(work.id)
+            dealloc(mailbox)
 
   echo &"worker {worker.id} stopping"
 
