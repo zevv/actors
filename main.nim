@@ -13,6 +13,7 @@ type
   Work = ref object of Continuation
     id: string
     pool: ptr Pool
+    mailboxLock: Lock
     mailbox: Deque[Message]
 
   Worker = ref object
@@ -97,6 +98,7 @@ template hatch(pool: ref Pool, workId: string, c: typed) =
   var work = Work(whelp c)
   work.pool = pool[].addr
   work.id = workId 
+  initLock work.mailboxLock
 
   # Add the new work to the actors table
   withLock pool.actorsLock:
@@ -116,7 +118,8 @@ proc freeze(work: Work): Work {.cpsMagic.} =
 
 proc recvAux(work: Work): Message {.cpsVoodoo.} =
   #echo &"recv {work.id}"
-  work.mailbox.popFirst()
+  withLock work.mailboxLock:
+    result = work.mailbox.popFirst()
 
 
 template recv(): Message =
@@ -134,7 +137,8 @@ proc sendAux(work: Work, dstId: string, msg: Message): Work {.cpsMagic.} =
     if dstId in pool.actorsTable:
       let dstWork = pool.actorsTable[dstId]
       # Deliver the message
-      dstWork.mailbox.addLast(msg)
+      withLock dstWork.mailboxLock:
+        dstWork.mailbox.addLast(msg)
       # Move the work to the awake work queue
       withLock pool.workLock:
         pool.workQueue.addLast dstWork
