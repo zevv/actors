@@ -30,6 +30,7 @@ type
    
     # This is where the continuations wait when not running
     workLock: Lock
+    stop: bool
     workCond: Cond
     workQueue: Deque[Work] # work that needs to be run asap on any worker
     idleQueue: Table[string, Work] # work that is waiting for messages
@@ -42,6 +43,11 @@ type
     src: string
 
 
+proc pass(cFrom, cTo: Work): Work =
+  cTo.pool = cFrom.pool
+  cTo.id = cFrom.id
+  cTo
+
 
 proc workerThread(worker: Worker) {.thread.} =
   let pool = worker.pool
@@ -52,9 +58,13 @@ proc workerThread(worker: Worker) {.thread.} =
 
     var work: Work
     withLock pool.workLock:
-      while pool.workQueue.len == 0:
+      while pool.workQueue.len == 0 and not pool.stop:
+        echo "wait ", worker.id
         pool.workCond.wait(pool.workLock)
+      if pool.stop:
+        break
       work = pool.workQueue.popFirst()
+    echo "woke ", worker.id, " ", pool.stop
 
     # Trampoline once and push result back on the queue
 
@@ -69,9 +79,11 @@ proc workerThread(worker: Worker) {.thread.} =
             # Unregister the mailbox for this actor
             withLock pool.mailhubLock:
               let mailbox = pool.mailhubTable[work.id]
+              mailbox.queue.clear()
               pool.mailhubTable.del(work.id)
               dealloc(mailbox)
 
+  echo &"worker {worker.id} stopping"
 
 
 # Create pool with work queue and worker threads
@@ -91,9 +103,24 @@ proc newPool(nWorkers: int): ref Pool =
   pool
 
 
-proc run(p: ref Pool) =
+proc run(pool: ref Pool) =
+
   while true:
+    withLock pool.mailhubLock:
+      if pool.mailhubTable.len == 0:
+        break
     os.sleep(50)
+
+  echo "all mailboxes gone"
+
+  withLock pool.workLock:
+    pool.stop = true
+    pool.workCond.broadcast()
+
+  for worker in pool.workers:
+    worker.thread.joinThread()
+
+  echo "all workers stopped"
 
 
 
@@ -108,7 +135,6 @@ proc hatchAux(pool: ref Pool, work: sink Work) =
 
   # Add the new work to the work queue
   withLock pool.workLock:
-    # TODO: verifyIsolated(work) ?
     pool.workQueue.addLast work
     pool.workCond.signal()
     work.wasMoved()
@@ -118,6 +144,7 @@ proc hatchAux(pool: ref Pool, work: sink Work) =
 template hatch(pool: ref Pool, workId: string, c: typed) =
   # Create and initialize the new continuation
   var work = Work(whelp c)
+  # TODO verifyIsolated(work)
   work.id = workId
   hatchAux(pool, work)
 
@@ -159,6 +186,7 @@ template recv(): Message =
 proc sendAux(work: Work, dstId: string, msg: sink Message): Work {.cpsMagic.} =
 
   msg.src = work.id
+  echo "  ", work.id, " -> ", dstId
 
   # Find the mailbox for this actor
   let pool = work.pool
@@ -202,6 +230,16 @@ type
   
   MsgHello = ref object of Message
 
+  MsgSleep = ref object of Message
+
+
+proc sendself() {.cps:Work.} =
+  echo "sending"
+  send("bob", MsgSleep())
+  echo "prerecv"
+  discard recv()
+  echo "postrev"
+
 
 # This thing answers questions
 
@@ -222,7 +260,10 @@ proc alice() {.cps:Work.} =
 
 
 proc bob() {.cps:Work.} =
+
   echo "I am bob"
+
+  sendself()
 
   var i = 0
 
@@ -245,25 +286,26 @@ proc bob() {.cps:Work.} =
   send("alice", MsgStop())
 
 
-proc claire() {.cps:Work.} =
+proc claire(count: int) {.cps:Work.} =
 
   var i = 0
-  while i < 10:
+  while i < count:
     send("claire", MsgHello())
     discard recv()
     os.sleep(100)
     i = i + 1
 
 
-var pool = newPool(10)
+proc main() =
 
-pool.hatch "alice", alice()
-pool.hatch "bob", bob()
-pool.hatch "claire", claire()
+  var pool = newPool(1)
 
-pool.run()
+  pool.hatch "alice", alice()
+  pool.hatch "bob", bob()
+  pool.hatch "claire", claire(3)
+
+  pool.run()
 
 
-
-
+main()
 
