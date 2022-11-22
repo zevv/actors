@@ -64,14 +64,14 @@ proc workerThread(worker: Worker) {.thread.} =
       if pool.stop:
         break
       work = pool.workQueue.popFirst()
-    echo "woke ", worker.id, " ", pool.stop
+    #echo "woke ", worker.id, " ", pool.stop
 
     # Trampoline once and push result back on the queue
 
     {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
 
       if not work.fn.isNil:
-        echo "tramp ", work.id, " on worker ", worker.id
+        #echo "tramp ", work.id, " on worker ", worker.id
         work = trampoline(work)
         if not isNil(work):
           if isNil(work.fn):
