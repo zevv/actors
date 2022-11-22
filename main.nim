@@ -30,7 +30,6 @@ proc sendself() {.cps:Work.} =
 # This thing answers questions
 
 proc alice() {.cps:Work.} =
-  echo "I am alice"
 
   while true:
     let m = recv()
@@ -41,13 +40,12 @@ proc alice() {.cps:Work.} =
       send("bob", MsgAnswer(c: mq.a + mq.b))
 
     if m of MsgStop:
-      echo "alice says bye"
       break
+      
+  echo "alice is done"
 
 
 proc bob() {.cps:Work.} =
-
-  echo "I am bob"
 
   sendself()
 
@@ -70,6 +68,7 @@ proc bob() {.cps:Work.} =
   # Thank you alice, you can go now
 
   send("alice", MsgStop())
+  echo "bob is done"
 
 
 proc claire(count: int) {.cps:Work.} =
@@ -80,6 +79,8 @@ proc claire(count: int) {.cps:Work.} =
     discard recv()
     os.sleep(100)
     i = i + 1
+
+  echo "claire is done"
 
 
 proc main() =
