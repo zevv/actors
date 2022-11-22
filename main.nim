@@ -44,7 +44,7 @@ proc workerThread(worker: Worker) {.thread.} =
 
   while true:
 
-    #echo &"worker {worker.id} loop"
+    echo &"worker {worker.id} loop"
 
     # Wait for work
 
