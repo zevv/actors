@@ -59,11 +59,8 @@ proc workerThread(worker: Worker) {.thread.} =
     {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
 
       if not work.fn.isNil:
-        #echo "tramp ", work.id
-        work = trampoline(work)
-        if not isNil(work):
-          withLock pool.workLock:
-            pool.workQueue.addLast(work)
+        echo "tramp ", work.id
+        discard trampoline(work)
       else:
         withLock pool.actorsLock:
           echo &"actor {work.id} has died"
