@@ -27,13 +27,14 @@ type
 
     # All workers in the pool. No lock needed, only main thread touches this
     workers: seq[Worker]
-    
+   
+    # This is where the continuations wait when not running
     workLock: Lock
     workCond: Cond
-    workQueue: Deque[Work] # queue of awake work that needs to be run on any worker
-    idleQueue: Table[string, Work] # here the idle work lie asleep
+    workQueue: Deque[Work] # work that needs to be run asap on any worker
+    idleQueue: Table[string, Work] # work that is waiting for messages
 
-    # mailboxes for the workers
+    # mailboxes for the actors
     mailhubLock: Lock
     mailhubTable: Table[string, ptr Mailbox[Message]]
 
@@ -46,8 +47,6 @@ proc workerThread(worker: Worker) {.thread.} =
   let pool = worker.pool
 
   while true:
-
-    echo &"worker {worker.id} loop"
 
     # Wait for work
 
@@ -62,11 +61,17 @@ proc workerThread(worker: Worker) {.thread.} =
     {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
 
       if not work.fn.isNil:
-        echo "tramp ", work.id
-        discard trampoline(work)
-        
-      else:
-        echo &"actor {work.id} has died"
+        echo "tramp ", work.id, " on worker ", worker.id
+        work = trampoline(work)
+        if not isNil(work):
+          if isNil(work.fn):
+            echo &"actor {work.id} has died"
+            # Unregister the mailbox for this actor
+            withLock pool.mailhubLock:
+              let mailbox = pool.mailhubTable[work.id]
+              pool.mailhubTable.del(work.id)
+              dealloc(mailbox)
+
 
 
 # Create pool with work queue and worker threads
@@ -120,17 +125,17 @@ template hatch(pool: ref Pool, workId: string, c: typed) =
 proc freeze(work: sink Work): Work {.cpsMagic.} =
   # If this continuation as a message waiting, move it back to the work queue.
   # Otherwise, put it in the sleep queue
-  echo "freeze ", work.id
+  #echo "freeze ", work.id
   let pool = work.pool
   withLock pool.mailhubLock:
     assert work.id in pool.mailhubTable
     let mailbox = pool.mailhubTable[work.id]
     withLock pool.workLock:
       if mailbox.queue.len == 0:
-        echo "no mail for ", work.id
+        #echo "no mail for ", work.id
         pool.idleQueue[work.id] = work
       else:
-        echo "mail for ", work.id
+        #echo "mail for ", work.id
         pool.workQueue.addLast(work)
       work.wasMoved()
 
@@ -167,7 +172,7 @@ proc sendAux(work: Work, dstId: string, msg: sink Message): Work {.cpsMagic.} =
       # If the target continuation for is in the sleep queue, move it to the work queue
       withLock pool.workLock:
         if dstId in pool.idleQueue:
-          echo "wake ", dstId
+          #echo "wake ", dstId
           var work = pool.idleQueue[dstId]
           pool.idleQueue.del(dstId)
           pool.workQueue.addLast(work)
@@ -194,6 +199,8 @@ type
     c: int
 
   MsgStop = ref object of Message
+  
+  MsgHello = ref object of Message
 
 
 # This thing answers questions
@@ -217,10 +224,9 @@ proc alice() {.cps:Work.} =
 proc bob() {.cps:Work.} =
   echo "I am bob"
 
-
   var i = 0
 
-  while i < 10:
+  while i < 5:
     # Let's ask alice a question
     
     send("alice", MsgQuestion(a: 10, b: i))
@@ -239,11 +245,21 @@ proc bob() {.cps:Work.} =
   send("alice", MsgStop())
 
 
+proc claire() {.cps:Work.} =
 
-var pool = newPool(2)
+  var i = 0
+  while i < 10:
+    send("claire", MsgHello())
+    discard recv()
+    os.sleep(100)
+    i = i + 1
+
+
+var pool = newPool(10)
 
 pool.hatch "alice", alice()
 pool.hatch "bob", bob()
+pool.hatch "claire", claire()
 
 pool.run()
 
