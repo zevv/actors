@@ -22,8 +22,7 @@ type
 
   Pool = object
 
-    # All workers in the poool
-    workersLock: Lock
+    # All workers in the pool. No lock needed, only main thread touches this
     workers: seq[Worker]
     
     # queue of awake actors that are scheduled to run on any worker.
@@ -44,6 +43,8 @@ proc workerThread(worker: Worker) {.thread.} =
   let pool = worker.pool
 
   while true:
+
+    #echo &"worker {worker.id} loop"
 
     # Wait for work
 
@@ -74,16 +75,14 @@ proc workerThread(worker: Worker) {.thread.} =
 proc newPool(nWorkers: int): ref Pool =
 
   var pool = new Pool
-  initLock pool.workersLock
   initLock pool.workLock
   initCond pool.workCond
 
-  withLock pool.workersLock:
-    for i in 0..<nWorkers:
-      var worker = Worker(id: i) # Why the hell can't I ininitialze Worker(id: i, pool: Pool) ?
-      worker.pool = pool[].addr
-      pool.workers.add worker
-      createThread(worker.thread, workerThread, worker)
+  for i in 0..<nWorkers:
+    var worker = Worker(id: i) # Why the hell can't I ininitialze Worker(id: i, pool: Pool) ?
+    worker.pool = pool[].addr
+    pool.workers.add worker
+    createThread(worker.thread, workerThread, worker)
 
   pool
 
@@ -129,7 +128,6 @@ template recv(): Message =
 
 
 proc sendAux(work: Work, dstId: string, msg: Message): Work {.cpsMagic.} =
-
 
   msg.src = work.id
 
