@@ -180,7 +180,6 @@ template recv*(): Message =
 proc sendAux*(work: Work, dstId: string, msg: sink Message): Work {.cpsMagic.} =
 
   msg.src = work.id
-  echo "  ", work.id, " -> ", dstId
 
   # Find the mailbox for this actor
   let pool {.cursor.} = work.pool
