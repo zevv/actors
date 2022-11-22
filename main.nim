@@ -13,27 +13,29 @@ type
   Work = ref object of Continuation
     id: string
     pool: ptr Pool
-    mailboxLock: Lock
-    mailbox: Deque[Message]
 
   Worker = ref object
     id: int
     thread: Thread[Worker]
     pool: ptr Pool
 
+  Mailbox[T] = object
+    lock: Lock
+    queue: Deque[T]
+
   Pool = object
 
     # All workers in the pool. No lock needed, only main thread touches this
     workers: seq[Worker]
     
-    # queue of awake actors that are scheduled to run on any worker.
     workLock: Lock
     workCond: Cond
-    workQueue: Deque[Work]
+    workQueue: Deque[Work] # queue of awake work that needs to be run on any worker
+    idleQueue: Table[string, Work] # here the idle work lie asleep
 
-    # list of all actors by id
-    actorsLock: Lock
-    actorsTable: Table[string, Work]
+    # mailboxes for the workers
+    mailhubLock: Lock
+    mailhubTable: Table[string, ptr Mailbox[Message]]
 
   Message = ref object of Rootobj
     src: string
@@ -62,10 +64,9 @@ proc workerThread(worker: Worker) {.thread.} =
       if not work.fn.isNil:
         echo "tramp ", work.id
         discard trampoline(work)
+        
       else:
-        withLock pool.actorsLock:
-          echo &"actor {work.id} has died"
-          pool.actorsTable.del(work.id)
+        echo &"actor {work.id} has died"
 
 
 # Create pool with work queue and worker threads
@@ -90,36 +91,59 @@ proc run(p: ref Pool) =
     os.sleep(50)
 
 
-# Create a new actor and put it on the work queue
 
-template hatch(pool: ref Pool, workId: string, c: typed) =
-
-  # Create and initialize new work
-  var work = Work(whelp c)
+proc hatchAux(pool: ref Pool, work: sink Work) =
   work.pool = pool[].addr
-  work.id = workId 
-  initLock work.mailboxLock
 
-  # Add the new work to the actors table
-  withLock pool.actorsLock:
-    pool.actorsTable[work.id] = work
+  # Register a mailbox for the actor
+  let mailbox = create Mailbox[Message]
+  initLock mailbox.lock
+  withLock pool.mailhubLock:
+    pool.mailhubTable[work.id] = mailbox
 
   # Add the new work to the work queue
   withLock pool.workLock:
     # TODO: verifyIsolated(work) ?
     pool.workQueue.addLast work
     pool.workCond.signal()
-    wasmoved work
+    work.wasMoved()
 
 
-proc freeze(work: Work): Work {.cpsMagic.} =
-  discard
+
+template hatch(pool: ref Pool, workId: string, c: typed) =
+  # Create and initialize the new continuation
+  var work = Work(whelp c)
+  work.id = workId
+  hatchAux(pool, work)
+
+
+proc freeze(work: sink Work): Work {.cpsMagic.} =
+  # If this continuation as a message waiting, move it back to the work queue.
+  # Otherwise, put it in the sleep queue
+  echo "freeze ", work.id
+  let pool = work.pool
+  withLock pool.mailhubLock:
+    assert work.id in pool.mailhubTable
+    let mailbox = pool.mailhubTable[work.id]
+    withLock pool.workLock:
+      if mailbox.queue.len == 0:
+        echo "no mail for ", work.id
+        pool.idleQueue[work.id] = work
+      else:
+        echo "mail for ", work.id
+        pool.workQueue.addLast(work)
+      work.wasMoved()
 
 
 proc recvAux(work: Work): Message {.cpsVoodoo.} =
-  #echo &"recv {work.id}"
-  withLock work.mailboxLock:
-    result = work.mailbox.popFirst()
+  let pool = work.pool
+  withLock pool.mailhubLock:
+    if work.id in pool.mailhubTable:
+      let mailbox = pool.mailhubTable[work.id]
+      withLock mailbox.lock:
+        result = mailbox.queue.popFirst()
+    else:
+      raise ValueError.newException &"no mailbox for {work.id} found"
 
 
 template recv(): Message =
@@ -127,29 +151,34 @@ template recv(): Message =
   recvAux()
 
 
-proc sendAux(work: Work, dstId: string, msg: Message): Work {.cpsMagic.} =
+proc sendAux(work: Work, dstId: string, msg: sink Message): Work {.cpsMagic.} =
 
   msg.src = work.id
 
-  # Find the actor in the actorTable
+  # Find the mailbox for this actor
   let pool = work.pool
-  withLock pool.actorsLock:
-    if dstId in pool.actorsTable:
-      let dstWork = pool.actorsTable[dstId]
+  withLock pool.mailhubLock:
+    if work.id in pool.mailhubTable:
+      let mailbox = pool.mailhubTable[dstId]
       # Deliver the message
-      withLock dstWork.mailboxLock:
-        dstWork.mailbox.addLast(msg)
-      # Move the work to the awake work queue
+      withLock mailbox.lock:
+        mailbox.queue.addLast(msg)
+      msg.wasMoved()
+      # If the target continuation for is in the sleep queue, move it to the work queue
       withLock pool.workLock:
-        pool.workQueue.addLast dstWork
-        pool.workCond.signal()
+        if dstId in pool.idleQueue:
+          echo "wake ", dstId
+          var work = pool.idleQueue[dstId]
+          pool.idleQueue.del(dstId)
+          pool.workQueue.addLast(work)
+          work.wasMoved
     else:
-      raise ValueError.newException &"{dstId} does not exist"
+      raise ValueError.newException &"no mailbox for {dstId} found"
   work
       
 
 template send(dstId: string, msg: Message): typed =
-  echo "  -> ", dstId, " :", msg.repr
+  echo "  -> ", dstId, ": ", msg.repr
   verifyIsolated(msg)
   sendAux(dstId, msg)
 
