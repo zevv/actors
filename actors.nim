@@ -59,7 +59,6 @@ proc workerThread(worker: Worker) {.thread.} =
     var work: Work
     withLock pool.workLock:
       while pool.workQueue.len == 0 and not pool.stop:
-        echo "wait ", worker.id
         pool.workCond.wait(pool.workLock)
       if pool.stop:
         break
@@ -68,7 +67,7 @@ proc workerThread(worker: Worker) {.thread.} =
     # Trampoline once and push result back on the queue
 
     if not work.fn.isNil:
-      #echo "tramp ", work.id, " on worker ", worker.id
+      echo "\e[35mtramp ", work.id, " on worker ", worker.id, "\e[0m"
       {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
         work = trampoline(work)
       if not isNil(work) and isNil(work.fn):
@@ -77,7 +76,7 @@ proc workerThread(worker: Worker) {.thread.} =
         withLock pool.mailhubLock:
           pool.mailhubTable.del(work.id)
 
-  echo &"worker {worker.id} stopping"
+  #echo &"worker {worker.id} stopping"
 
 
 # Create pool with work queue and worker threads

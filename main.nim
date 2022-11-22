@@ -84,11 +84,11 @@ proc claire(count: int) {.cps:Work.} =
 
 proc main() =
 
-  var pool = newPool(1)
+  var pool = newPool(4)
 
   pool.hatch "alice", alice()
   pool.hatch "bob", bob()
-  pool.hatch "claire", claire(3)
+  pool.hatch "claire", claire(5)
 
   pool.run()
 
