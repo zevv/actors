@@ -240,7 +240,7 @@ proc sendAux*(actor: Actor, dstActorId: ActorId, msg: sink Message): Actor {.cps
       # Deliver the message
       withLock mailbox.lock:
         mailbox.queue.addLast(msg)
-      msg.wasMoved()
+      #msg.wasMoved()   # really, was it?
       # If the target continuation is in the sleep queue, move it to the work queue
       withLock pool.workLock:
         if dstActorId in pool.idleQueue:
