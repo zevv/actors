@@ -1,6 +1,7 @@
 
 import os
 import strformat
+import std/macros
 import std/locks
 import std/deques
 import std/tables
@@ -157,6 +158,14 @@ template recv*(): Message =
 
 
 
+proc waitForWork(pool: ptr Pool): Actor =
+  withLock pool.workLock:
+    while pool.workQueue.len == 0 and not pool.stop:
+      pool.workCond.wait(pool.workLock)
+    if not pool.stop:
+      return pool.workQueue.popFirst()
+
+
 proc workerThread(worker: Worker) {.thread.} =
   let pool = worker.pool
   let wid = "worker." & $worker.id
@@ -166,44 +175,38 @@ proc workerThread(worker: Worker) {.thread.} =
     # Wait for actor or stop request
 
     bitline.logStart(wid & ".wait")
-
-    var actor: Actor
-    withLock pool.workLock:
-      while pool.workQueue.len == 0 and not pool.stop:
-        pool.workCond.wait(pool.workLock)
-      if pool.stop:
-        break
-      actor = pool.workQueue.popFirst()
-
+    var actor = pool.waitForWork()
     bitline.logStop(wid & ".wait")
+    
+    if actor.isNil:
+      break
 
-    # Trampoline once and push result back on the queue
+    # Trampoline the continuation
 
-    if not actor.fn.isNil:
-      #echo "\e[35mtramp ", actor.id, " on worker ", worker.id, "\e[0m"
-      {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
-        let aid = "actor." & $actor.id & ".run"
-        let wid = "worker." & $worker.id & ".run"
+    #echo "\e[35mtramp ", actor.id, " on worker ", worker.id, "\e[0m"
+    let aid = "actor." & $actor.id & ".run"
 
-        bitline.logStart(wid)
-        bitline.logStart(aid)
+    bitline.logStart(wid)
+    bitline.logStart(aid)
 
-        actor = trampoline(actor)
+    {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
+      actor = trampoline(actor)
 
-        bitline.logStop(wid)
-        bitline.logStop(aid)
+    bitline.logStop(wid)
+    bitline.logStop(aid)
 
-      if not isNil(actor) and isNil(actor.fn):
-        echo &"actor {actor.id} has died, parent was {actor.parent_id}"
-        # Delete the mailbox for this actor
-        pool.mailhub.unregister(actor.id)
-        # Send a message to the parent
-        if actor.parent_id > 0:
-          let msg = MessageDied(id: actor.id)
-          pool.send(0, actor.parent_id, msg)
-        
+    # Cleanup if continuation has finixhed
 
-  #echo &"worker {worker.id} stopping"
+    if actor.finished:
+      #echo &"actor {actor.id} has died, parent was {actor.parent_id}"
+      pool.mailhub.unregister(actor.id)
+      let msg = MessageDied(id: actor.id)
+      pool.send(0, actor.parent_id, msg)
+      
+
+macro actor*(n: untyped): untyped =
+  n.addPragma nnkExprColonExpr.newTree(ident"cps", ident"Actor")
+  n     
 
 
 proc getMyId*(c: Actor): ActorId {.cpsVoodoo.} =

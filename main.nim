@@ -23,7 +23,7 @@ type
 
 # This thing calculates things, but quite slowly
 
-proc calculator() {.cps:Actor.} =
+proc calculator() {.actor.} =
 
   while true:
     let m = recv()
@@ -31,7 +31,7 @@ proc calculator() {.cps:Actor.} =
     if m of MsgQuestion:
       echo &"calculator got a question from {m.src}"
       let mq = m.MsgQuestion
-      os.sleep(10)
+      os.sleep(1)
       send(m.src, MsgAnswer(c: mq.a + mq.b))
 
     if m of MsgStop:
@@ -40,13 +40,13 @@ proc calculator() {.cps:Actor.} =
   echo "calculator is done"
 
 
-proc bob(idCalculator: ActorId, count: int) {.cps:Actor.} =
+proc bob(idCalculator: ActorId, count: int) {.actor.} =
 
   var i = 0
 
   while i < count:
    
-    os.sleep(1)
+    os.sleep(5)
     send(idCalculator, MsgQuestion(a: 10, b: i))
 
     let m = recv()
@@ -65,7 +65,7 @@ proc spin(t: float) =
     discard
 
 
-proc claire(count: int) {.cps:Actor.} =
+proc claire(count: int) {.actor.} =
 
   let self = getMyId()
 
@@ -77,11 +77,11 @@ proc claire(count: int) {.cps:Actor.} =
     i = i + 1
 
 
-proc sleepy() {.cps:Actor.} = 
+proc sleepy() {.actor.} = 
   os.sleep(10)
 
 
-proc main() {.cps:Actor.} =
+proc main() {.actor.} =
 
   # Hatch a calculator
 
