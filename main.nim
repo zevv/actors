@@ -81,9 +81,10 @@ proc claire(count: int) {.cps:Actor.} =
   while i < count:
     send(self, MsgHello())
     discard recv()
-    let t_done = epochTime() + 0.1
-    while epochTime() < t_done:
-      discard
+    sleep(1)
+    #let t_done = epochTime() + 0.01
+    #while epochTime() < t_done:
+    #  discard
     i = i + 1
 
   echo "claire is done"
@@ -91,7 +92,7 @@ proc claire(count: int) {.cps:Actor.} =
 
 proc main() =
 
-  var pool = newPool(16)
+  var pool = newPool(4)
 
   let idAlice = pool.hatch alice()
   let idBob = pool.hatch bob(idAlice)
