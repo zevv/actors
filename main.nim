@@ -20,24 +20,16 @@ type
   MsgSleep = ref object of Message
 
 
-proc sendself() {.cps:Actor.} =
-  let self = getMyId()
-  echo "sending"
-  send(self, MsgSleep())
-  echo "prerecv"
-  discard recv()
-  echo "postrev"
 
+# This thing calculates things, but quite slowly
 
-# This thing answers questions
-
-proc alice() {.cps:Actor.} =
+proc calculator() {.cps:Actor.} =
 
   while true:
     let m = recv()
 
     if m of MsgQuestion:
-      echo &"alice got a question from {m.src}"
+      echo &"calculator got a question from {m.src}"
       let mq = m.MsgQuestion
       os.sleep(10)
       send(m.src, MsgAnswer(c: mq.a + mq.b))
@@ -45,21 +37,18 @@ proc alice() {.cps:Actor.} =
     if m of MsgStop:
       break
       
-  echo "alice is done"
+  echo "calculator is done"
 
 
-proc bob(idAlice: ActorId, count: int) {.cps:Actor.} =
-
-  sendself()
+proc bob(idCalculator: ActorId, count: int) {.cps:Actor.} =
 
   var i = 0
 
   while i < count:
-    # Let's ask alice a question
-    
-    send(idAlice, MsgQuestion(a: 10, b: i))
+   
+    os.sleep(1)
+    send(idCalculator, MsgQuestion(a: 10, b: i))
 
-    # And receive the answer
     let m = recv()
 
     if m of MsgAnswer:
@@ -68,10 +57,6 @@ proc bob(idAlice: ActorId, count: int) {.cps:Actor.} =
 
     inc i
 
-  # Thank you alice, you can go now
-
-  send(idAlice, MsgStop())
-  echo "bob is done"
 
 
 proc spin(t: float) =
@@ -88,25 +73,50 @@ proc claire(count: int) {.cps:Actor.} =
   while i < count:
     send(self, MsgHello())
     discard recv()
-    #sleep(1)
     spin(1e-6)
     i = i + 1
 
 
-proc main() =
+proc sleepy() {.cps:Actor.} = 
+  os.sleep(10)
 
-  var pool = newPool(16)
+
+proc main() {.cps:Actor.} =
+
+  # Hatch a calculator
+
+  let idCalculator = hatch calculator()
+  
+  var bobs = 0
+
+  # Hatch a number of bobs
+
+  for i in 1..2:
+    bobs.inc
+    discard hatch bob(idCalculator, 2)
+
+  # Wait for all the bobs to finish, then kill the calculator
+
+  while true:
+
+    let m = recv()
+
+    if m of MessageDied:
+      let md = m.MessageDied
+      bobs.dec
+      echo &"actor {md.id} died, {bobs} bobs left!"
+      if bobs == 0:
+        send(idCalculator, MsgStop())
+        break
+
+  echo "main is done"
 
 
-  for i in 1..100:
-    let idAlice = pool.hatch alice()
-    let idBob = pool.hatch bob(idAlice, 10)
-
-  #for i in 1..10:
-  #  let idClaire = pool.hatch claire(1000)
-
+proc go() =
+  var pool = newPool(4)
+  discard pool.hatch main()
   pool.run()
 
 
-main()
+go()
 

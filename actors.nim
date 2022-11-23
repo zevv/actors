@@ -1,13 +1,16 @@
 
 import os
-import cps
 import strformat
-import isisolated
 import std/locks
 import std/deques
 import std/tables
 import std/atomics
 import std/times
+
+import cps
+
+import bitline
+import isisolated
 
 
 const optLog = defined(actorsLog)
@@ -18,6 +21,7 @@ type
 
   Actor* = ref object of Continuation
     id: ActorId
+    parentId: ActorId
     pool: ptr Pool
 
   Worker = ref object
@@ -32,7 +36,7 @@ type
   Pool* = object
 
     # bitline log file
-    fLog: File
+    bitLine: Bitline
 
     # Used to assign unique ActorIds
     actorIdCounter: Atomic[int]
@@ -54,6 +58,11 @@ type
   Message* = ref object of Rootobj
     src*: ActorId
 
+  MessageDied* = ref object of Message
+    id*: ActorId
+
+
+
 
 proc pass*(cFrom, cTo: Actor): Actor =
   cTo.pool = cFrom.pool
@@ -61,11 +70,74 @@ proc pass*(cFrom, cTo: Actor): Actor =
   cTo
 
 
-proc log(pool: ptr Pool, event, msg: string) =
-  when optLog:
-    let l = $epochTime() & " " & event & " " & msg & "\n"
-    pool.fLog.write(l)
-    pool.fLog.flushFile
+proc send(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
+
+  msg.src = srcId
+  echo &"  send {srcId} -> {dstId}: {msg.repr}"
+
+  withLock pool.mailhubLock:
+    if dstId in pool.mailhubTable:
+      let mailbox = pool.mailhubTable[dstId]
+      withLock mailbox.lock:
+        mailbox.queue.addLast(msg)
+        # msg.wasMoved() # was it or was it not?
+        pool.bitline.logValue("actor." & $dstId & ".mailbox", mailbox.queue.len)
+    else:
+      discard
+      #raise ValueError.newException &"send: no mailbox for {dstId} found"
+
+  # If the target continuation is in the sleep queue, move it to the work queue
+  withLock pool.workLock:
+    if dstId in pool.idleQueue:
+      #echo "wake ", dstId
+      var actor = pool.idleQueue[dstId]
+      pool.idleQueue.del(dstId)
+      pool.workQueue.addLast(actor)
+      pool.workCond.signal()
+      actor.wasMoved
+
+
+proc sendAux*(actor: Actor, dst: ActorId, msg: sink Message) {.cpsVoodoo.} =
+  actor.pool.send(actor.id, dst, msg)
+
+
+template send*(dst: ActorId, msg: Message): typed =
+  verifyIsolated(msg)
+  sendAux(dst, msg)
+
+
+proc recvYield*(actor: sink Actor): Actor {.cpsMagic.} =
+  # If there are no messages waiting in the mailbox, move the continuation to
+  # the idle queue. Otherwise, return the current continuation so it can
+  # receive and handle the mail without yielding
+  let pool = actor.pool
+  withLock pool.mailhubLock:
+    assert actor.id in pool.mailhubTable
+    let mailbox {.cursor.} = pool.mailhubTable[actor.id]
+    if mailbox.queue.len == 0:
+      withLock pool.workLock:
+        pool.idleQueue[actor.id] = actor
+      actor.wasMoved()
+    else:
+      result = actor
+
+
+proc recvGetMessage*(actor: Actor): Message {.cpsVoodoo.} =
+  let pool = actor.pool
+  withLock pool.mailhubLock:
+    if actor.id in pool.mailhubTable:
+      let mailbox {.cursor.} = pool.mailhubTable[actor.id]
+      withLock mailbox.lock:
+        result = mailbox.queue.popFirst()
+        pool.bitline.logValue("actor." & $actor.id & ".mailbox", mailbox.queue.len)
+    else:
+      raise ValueError.newException &"recv: no mailbox for {actor.id} found"
+
+
+template recv*(): Message =
+  recvYield()
+  recvGetMessage()
+
 
 
 proc workerThread(worker: Worker) {.thread.} =
@@ -76,7 +148,7 @@ proc workerThread(worker: Worker) {.thread.} =
 
     # Wait for actor or stop request
 
-    pool.log("+", wid & ".wait")
+    pool.bitline.logStart(wid & ".wait")
 
     var actor: Actor
     withLock pool.workLock:
@@ -86,29 +158,34 @@ proc workerThread(worker: Worker) {.thread.} =
         break
       actor = pool.workQueue.popFirst()
 
-    pool.log("-", wid & ".wait")
+    pool.bitline.logStop(wid & ".wait")
 
     # Trampoline once and push result back on the queue
 
     if not actor.fn.isNil:
       #echo "\e[35mtramp ", actor.id, " on worker ", worker.id, "\e[0m"
       {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
-        let aid = "actor." & $actor.id
-        let wid = "worker." & $worker.id
+        let aid = "actor." & $actor.id & ".run"
+        let wid = "worker." & $worker.id & ".run"
 
-        pool.log("+", wid & ".run ")
-        pool.log("+", aid & ".run")
+        pool.bitline.logStart(wid)
+        pool.bitline.logStart(aid)
 
         actor = trampoline(actor)
 
-        pool.log("-", wid & ".run")
-        pool.log("-", aid & ".run")
+        pool.bitline.logStop(wid)
+        pool.bitline.logStop(aid)
 
       if not isNil(actor) and isNil(actor.fn):
-        #echo &"actor {actor.id} has died"
+        echo &"actor {actor.id} has died, parent was {actor.parent_id}"
         # Delete the mailbox for this actor
         withLock pool.mailhubLock:
           pool.mailhubTable.del(actor.id)
+        # Send a message to the parent
+        if actor.parent_id > 0:
+          let msg = MessageDied(id: actor.id)
+          pool.send(0, actor.parent_id, msg)
+        
 
   #echo &"worker {worker.id} stopping"
 
@@ -125,7 +202,7 @@ proc newPool*(nWorkers: int): ref Pool =
   initCond pool.workCond
 
   when optLog:
-    pool.fLog = open("/tmp/nimactors.bl", fmWrite)
+    pool.bitline = newBitline("/tmp/nimactors.bl")
 
   for i in 0..<nWorkers:
     var worker = Worker(id: i) # Why the hell can't I initialize Worker(id: i, pool: Pool) ?
@@ -158,21 +235,22 @@ proc run*(pool: ref Pool) =
   echo "all workers stopped"
 
   when optLog:
-    pool.fLog.close()
+    pool.bitline.close()
 
 
 
 
-proc hatchAux(pool: ref Pool, actor: sink Actor): ActorId =
+proc hatchAux(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId): ActorId =
 
   pool.actorIdCounter += 1
   let myId = pool.actorIdCounter.load()
 
   actor.pool = pool[].addr
   actor.id = myId
+  actor.parentId = parentId
 
   # Register a mailbox for the actor
-  var mailbox = Mailbox[Message]()
+  var mailbox = new Mailbox[Message]
   initLock mailbox.lock
   withLock pool.mailhubLock:
     pool.mailhubTable[actor.id] = mailbox
@@ -194,35 +272,15 @@ template hatch*(pool: ref Pool, c: typed): ActorId =
   hatchAux(pool, actor)
 
 
-proc recvYield*(actor: sink Actor): Actor {.cpsMagic.} =
-  # If there are no messages waiting, move the continuation to the
-  # idle queue.
+proc hatchFromActor*(actor: Actor, newActor: Actor): ActorId {.cpsVoodoo.} =
   let pool = actor.pool
-  withLock pool.mailhubLock:
-    assert actor.id in pool.mailhubTable
-    let mailbox {.cursor.} = pool.mailhubTable[actor.id]
-    if mailbox.queue.len == 0:
-      withLock pool.workLock:
-        pool.idleQueue[actor.id] = actor
-      actor.wasMoved()
-    else:
-      result = actor
+  hatchAux(actor.pool, newActor, actor.id)
 
-
-proc recvGetMessage*(actor: Actor): Message {.cpsVoodoo.} =
-  let pool = actor.pool
-  withLock pool.mailhubLock:
-    if actor.id in pool.mailhubTable:
-      let mailbox = pool.mailhubTable[actor.id]
-      withLock mailbox.lock:
-        result = mailbox.queue.popFirst()
-    else:
-      raise ValueError.newException &"no mailbox for {actor.id} found"
-
-
-template recv*(): Message =
-  recvYield()
-  recvGetMessage()
+# Create and initialize a new actor from within an actor
+#
+template hatch*(c: typed): ActorId =
+  var actor = Actor(whelp c)
+  hatchFromActor(actor)
 
 
 # Yield but go back to the work queue
@@ -232,39 +290,5 @@ proc backoff*(actor: sink Actor): Actor {.cpsMagic.} =
   withLock pool.workLock:
     pool.workQueue.addLast(actor)
   actor.wasMoved()
-
-
-proc sendAux*(actor: Actor, dstActorId: ActorId, msg: sink Message): Actor {.cpsMagic.} =
-
-  msg.src = actor.id
-
-  # Find the mailbox for this actor
-  let pool = actor.pool
-  withLock pool.mailhubLock:
-    if actor.id in pool.mailhubTable:
-      let mailbox = pool.mailhubTable[dstActorId]
-      # Deliver the message
-      withLock mailbox.lock:
-        mailbox.queue.addLast(msg)
-      #msg.wasMoved()   # really, was it?
-      # If the target continuation is in the sleep queue, move it to the work queue
-      withLock pool.workLock:
-        if dstActorId in pool.idleQueue:
-          #echo "wake ", dstActorId
-          var actor = pool.idleQueue[dstActorId]
-          pool.idleQueue.del(dstActorId)
-          pool.workQueue.addLast(actor)
-          pool.workCond.signal()
-          pool.log("!", "actor." & $actor.id & ".signal")
-          actor.wasMoved
-    else:
-      raise ValueError.newException &"no mailbox for {dstActorId} found"
-  actor
-
-
-template send*(dstActorId: ActorId, msg: Message): typed =
-  #echo "  -> ", dstActorId, ": ", msg.repr
-  verifyIsolated(msg)
-  sendAux(dstActorId, msg)
 
 
