@@ -10,7 +10,7 @@ import std/atomics
 import std/times
 
 
-const optLog = false
+const optLog = defined(actorsLog)
 
 type
 
@@ -18,18 +18,18 @@ type
 
   Actor* = ref object of Continuation
     id: ActorId
-    pool: Pool
+    pool: ptr Pool
 
   Worker = ref object
     id: int
     thread: Thread[Worker]
-    pool: Pool
+    pool: ptr Pool
 
   Mailbox[T] = ref object
     lock: Lock
     queue: Deque[T]
 
-  Pool* = ref object
+  Pool* = object
 
     # bitline log file
     fLog: File
@@ -61,7 +61,7 @@ proc pass*(cFrom, cTo: Actor): Actor =
   cTo
 
 
-proc log(pool: Pool, event, msg: string) =
+proc log(pool: ptr Pool, event, msg: string) =
   when optLog:
     let l = $epochTime() & " " & event & " " & msg & "\n"
     pool.fLog.write(l)
@@ -69,14 +69,14 @@ proc log(pool: Pool, event, msg: string) =
 
 
 proc workerThread(worker: Worker) {.thread.} =
-  let pool {.cursor.} = worker.pool
+  let pool = worker.pool
   let wid = "worker." & $worker.id
 
   while true:
 
     # Wait for actor or stop request
 
-    pool.log("+", wid & ".wait\n")
+    pool.log("+", wid & ".wait")
 
     var actor: Actor
     withLock pool.workLock:
@@ -86,17 +86,17 @@ proc workerThread(worker: Worker) {.thread.} =
         break
       actor = pool.workQueue.popFirst()
 
-    pool.log("-", wid & ".wait\n")
+    pool.log("-", wid & ".wait")
 
     # Trampoline once and push result back on the queue
 
     if not actor.fn.isNil:
-      echo "\e[35mtramp ", actor.id, " on worker ", worker.id, "\e[0m"
+      #echo "\e[35mtramp ", actor.id, " on worker ", worker.id, "\e[0m"
       {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
         let aid = "actor." & $actor.id
         let wid = "worker." & $worker.id
 
-        pool.log("+", wid & ".run")
+        pool.log("+", wid & ".run ")
         pool.log("+", aid & ".run")
 
         actor = trampoline(actor)
@@ -105,7 +105,7 @@ proc workerThread(worker: Worker) {.thread.} =
         pool.log("-", aid & ".run")
 
       if not isNil(actor) and isNil(actor.fn):
-        echo &"actor {actor.id} has died"
+        #echo &"actor {actor.id} has died"
         # Delete the mailbox for this actor
         withLock pool.mailhubLock:
           pool.mailhubTable.del(actor.id)
@@ -118,7 +118,7 @@ proc getMyId*(c: Actor): ActorId {.cpsVoodoo.} =
 
 # Create pool with actor queue and worker threads
 
-proc newPool*(nWorkers: int): Pool =
+proc newPool*(nWorkers: int): ref Pool =
 
   var pool = new Pool
   initLock pool.workLock
@@ -129,7 +129,7 @@ proc newPool*(nWorkers: int): Pool =
 
   for i in 0..<nWorkers:
     var worker = Worker(id: i) # Why the hell can't I initialize Worker(id: i, pool: Pool) ?
-    worker.pool = pool
+    worker.pool = pool[].addr
     pool.workers.add worker
     createThread(worker.thread, workerThread, worker)
 
@@ -138,7 +138,7 @@ proc newPool*(nWorkers: int): Pool =
 
 # Wait until all actors in the pool have died and cleanup
 
-proc run*(pool: Pool) =
+proc run*(pool: ref Pool) =
 
   while true:
     withLock pool.mailhubLock:
@@ -158,17 +158,17 @@ proc run*(pool: Pool) =
   echo "all workers stopped"
 
   when optLog:
-    poll.fdLog.close()
+    pool.fLog.close()
 
 
 
 
-proc hatchAux(pool: Pool, actor: sink Actor): ActorId =
+proc hatchAux(pool: ref Pool, actor: sink Actor): ActorId =
 
   pool.actorIdCounter += 1
   let myId = pool.actorIdCounter.load()
 
-  actor.pool = pool
+  actor.pool = pool[].addr
   actor.id = myId
 
   # Register a mailbox for the actor
@@ -188,32 +188,29 @@ proc hatchAux(pool: Pool, actor: sink Actor): ActorId =
   
 # Create and initialize a new actor
 
-template hatch*(pool: Pool, c: typed): ActorId =
+template hatch*(pool: ref Pool, c: typed): ActorId =
   # TODO verifyIsolated(actor)
   var actor = Actor(whelp c)
   hatchAux(pool, actor)
 
 
-proc freeze*(actor: sink Actor): Actor {.cpsMagic.} =
-  # If this continuation as a message waiting, move it back to the work queue.
-  # Otherwise, put it in the sleep queue
-  #echo "freeze ", work.id
-  let pool {.cursor.} = actor.pool
+proc recvYield*(actor: sink Actor): Actor {.cpsMagic.} =
+  # If there are no messages waiting, move the continuation to the
+  # idle queue.
+  let pool = actor.pool
   withLock pool.mailhubLock:
     assert actor.id in pool.mailhubTable
     let mailbox {.cursor.} = pool.mailhubTable[actor.id]
-    withLock pool.workLock:
-      if mailbox.queue.len == 0:
-        #echo "no mail for ", actor.id
+    if mailbox.queue.len == 0:
+      withLock pool.workLock:
         pool.idleQueue[actor.id] = actor
-      else:
-        #echo "mail for ", actor.id
-        pool.workQueue.addLast(actor)
       actor.wasMoved()
+    else:
+      result = actor
 
 
-proc recvAux*(actor: Actor): Message {.cpsVoodoo.} =
-  let pool {.cursor.} = actor.pool
+proc recvGetMessage*(actor: Actor): Message {.cpsVoodoo.} =
+  let pool = actor.pool
   withLock pool.mailhubLock:
     if actor.id in pool.mailhubTable:
       let mailbox = pool.mailhubTable[actor.id]
@@ -224,8 +221,17 @@ proc recvAux*(actor: Actor): Message {.cpsVoodoo.} =
 
 
 template recv*(): Message =
-  freeze()
-  recvAux()
+  recvYield()
+  recvGetMessage()
+
+
+# Yield but go back to the work queue
+
+proc backoff*(actor: sink Actor): Actor {.cpsMagic.} =
+  let pool = actor.pool
+  withLock pool.workLock:
+    pool.workQueue.addLast(actor)
+  actor.wasMoved()
 
 
 proc sendAux*(actor: Actor, dstActorId: ActorId, msg: sink Message): Actor {.cpsMagic.} =
@@ -233,7 +239,7 @@ proc sendAux*(actor: Actor, dstActorId: ActorId, msg: sink Message): Actor {.cps
   msg.src = actor.id
 
   # Find the mailbox for this actor
-  let pool {.cursor.} = actor.pool
+  let pool = actor.pool
   withLock pool.mailhubLock:
     if actor.id in pool.mailhubTable:
       let mailbox = pool.mailhubTable[dstActorId]
@@ -257,7 +263,7 @@ proc sendAux*(actor: Actor, dstActorId: ActorId, msg: sink Message): Actor {.cps
 
 
 template send*(dstActorId: ActorId, msg: Message): typed =
-  echo "  -> ", dstActorId, ": ", msg.repr
+  #echo "  -> ", dstActorId, ": ", msg.repr
   verifyIsolated(msg)
   sendAux(dstActorId, msg)
 

@@ -39,6 +39,7 @@ proc alice() {.cps:Actor.} =
     if m of MsgQuestion:
       echo &"alice got a question from {m.src}"
       let mq = m.MsgQuestion
+      os.sleep(10)
       send(m.src, MsgAnswer(c: mq.a + mq.b))
 
     if m of MsgStop:
@@ -47,13 +48,13 @@ proc alice() {.cps:Actor.} =
   echo "alice is done"
 
 
-proc bob(idAlice: ActorId) {.cps:Actor.} =
+proc bob(idAlice: ActorId, count: int) {.cps:Actor.} =
 
   sendself()
 
   var i = 0
 
-  while i < 5:
+  while i < count:
     # Let's ask alice a question
     
     send(idAlice, MsgQuestion(a: 10, b: i))
@@ -73,6 +74,12 @@ proc bob(idAlice: ActorId) {.cps:Actor.} =
   echo "bob is done"
 
 
+proc spin(t: float) =
+  let t_done = epochTime() + t
+  while epochTime() < t_done:
+    discard
+
+
 proc claire(count: int) {.cps:Actor.} =
 
   let self = getMyId()
@@ -81,24 +88,22 @@ proc claire(count: int) {.cps:Actor.} =
   while i < count:
     send(self, MsgHello())
     discard recv()
-    sleep(1)
-    #let t_done = epochTime() + 0.01
-    #while epochTime() < t_done:
-    #  discard
+    #sleep(1)
+    spin(1e-6)
     i = i + 1
-
-  echo "claire is done"
 
 
 proc main() =
 
-  var pool = newPool(4)
+  var pool = newPool(16)
 
-  let idAlice = pool.hatch alice()
-  let idBob = pool.hatch bob(idAlice)
 
-  for i in 1..4:
-    let idClaire = pool.hatch claire(10)
+  for i in 1..100:
+    let idAlice = pool.hatch alice()
+    let idBob = pool.hatch bob(idAlice, 10)
+
+  #for i in 1..10:
+  #  let idClaire = pool.hatch claire(1000)
 
   pool.run()
 
