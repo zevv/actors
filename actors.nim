@@ -6,12 +6,15 @@ import isisolated
 import std/locks
 import std/deques
 import std/tables
+import std/atomics
 
 
 type
 
+  ActorId* = int
+
   Work* = ref object of Continuation
-    id: string
+    id: ActorId
     pool: Pool
 
   Worker = ref object
@@ -25,6 +28,8 @@ type
 
   Pool* = ref object
 
+    actorIdCounter: Atomic[int]
+
     # All workers in the pool. No lock needed, only main thread touches this
     workers: seq[Worker]
    
@@ -33,14 +38,14 @@ type
     stop: bool
     workCond: Cond
     workQueue: Deque[Work] # work that needs to be run asap on any worker
-    idleQueue: Table[string, Work] # work that is waiting for messages
+    idleQueue: Table[ActorId, Work] # work that is waiting for messages
 
     # mailboxes for the actors
     mailhubLock: Lock
-    mailhubTable: Table[string, Mailbox[Message]]
+    mailhubTable: Table[ActorId, Mailbox[Message]]
 
   Message* = ref object of Rootobj
-    src*: string
+    src*: ActorId
 
 
 proc pass*(cFrom, cTo: Work): Work =
@@ -78,6 +83,9 @@ proc workerThread(worker: Worker) {.thread.} =
 
   #echo &"worker {worker.id} stopping"
 
+
+proc getMyId*(c: Work): ActorId {.cpsVoodoo.} =
+  c.id
 
 # Create pool with work queue and worker threads
 
@@ -119,8 +127,13 @@ proc run*(pool: Pool) =
 
 
 
-proc hatchAux(pool: Pool, work: sink Work) =
+proc hatchAux(pool: Pool, work: sink Work): ActorId =
+
+  pool.actorIdCounter += 1
+  let myId = pool.actorIdCounter.load()
+
   work.pool = pool
+  work.id = myId
 
   # Register a mailbox for the actor
   var mailbox = Mailbox[Message]()
@@ -134,12 +147,14 @@ proc hatchAux(pool: Pool, work: sink Work) =
     pool.workCond.signal()
     work.wasMoved()
 
+  myId
 
-template hatch*(pool: Pool, workId: string, c: typed) =
-  # Create and initialize the new continuation
-  var work = Work(whelp c)
+  
+# Create and initialize a new actor
+
+template hatch*(pool: Pool, c: typed): ActorId =
   # TODO verifyIsolated(work)
-  work.id = workId
+  var work = Work(whelp c)
   hatchAux(pool, work)
 
 
@@ -177,7 +192,7 @@ template recv*(): Message =
   recvAux()
 
 
-proc sendAux*(work: Work, dstId: string, msg: sink Message): Work {.cpsMagic.} =
+proc sendAux*(work: Work, dstActorId: ActorId, msg: sink Message): Work {.cpsMagic.} =
 
   msg.src = work.id
 
@@ -185,27 +200,27 @@ proc sendAux*(work: Work, dstId: string, msg: sink Message): Work {.cpsMagic.} =
   let pool {.cursor.} = work.pool
   withLock pool.mailhubLock:
     if work.id in pool.mailhubTable:
-      let mailbox = pool.mailhubTable[dstId]
+      let mailbox = pool.mailhubTable[dstActorId]
       # Deliver the message
       withLock mailbox.lock:
         mailbox.queue.addLast(msg)
       msg.wasMoved()
       # If the target continuation is in the sleep queue, move it to the work queue
       withLock pool.workLock:
-        if dstId in pool.idleQueue:
-          #echo "wake ", dstId
-          var work = pool.idleQueue[dstId]
-          pool.idleQueue.del(dstId)
+        if dstActorId in pool.idleQueue:
+          #echo "wake ", dstActorId
+          var work = pool.idleQueue[dstActorId]
+          pool.idleQueue.del(dstActorId)
           pool.workQueue.addLast(work)
           work.wasMoved
     else:
-      raise ValueError.newException &"no mailbox for {dstId} found"
+      raise ValueError.newException &"no mailbox for {dstActorId} found"
   work
       
 
-template send*(dstId: string, msg: Message): typed =
-  echo "  -> ", dstId, ": ", msg.repr
+template send*(dstActorId: ActorId, msg: Message): typed =
+  echo "  -> ", dstActorId, ": ", msg.repr
   verifyIsolated(msg)
-  sendAux(dstId, msg)
+  sendAux(dstActorId, msg)
 
 

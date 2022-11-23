@@ -20,8 +20,9 @@ type
 
 
 proc sendself() {.cps:Work.} =
+  let self = getMyId()
   echo "sending"
-  send("bob", MsgSleep())
+  send(self, MsgSleep())
   echo "prerecv"
   discard recv()
   echo "postrev"
@@ -37,7 +38,7 @@ proc alice() {.cps:Work.} =
     if m of MsgQuestion:
       echo &"alice got a question from {m.src}"
       let mq = m.MsgQuestion
-      send("bob", MsgAnswer(c: mq.a + mq.b))
+      send(m.src, MsgAnswer(c: mq.a + mq.b))
 
     if m of MsgStop:
       break
@@ -45,7 +46,7 @@ proc alice() {.cps:Work.} =
   echo "alice is done"
 
 
-proc bob() {.cps:Work.} =
+proc bob(idAlice: ActorId) {.cps:Work.} =
 
   sendself()
 
@@ -54,7 +55,7 @@ proc bob() {.cps:Work.} =
   while i < 5:
     # Let's ask alice a question
     
-    send("alice", MsgQuestion(a: 10, b: i))
+    send(idAlice, MsgQuestion(a: 10, b: i))
 
     # And receive the answer
     let m = recv()
@@ -67,15 +68,17 @@ proc bob() {.cps:Work.} =
 
   # Thank you alice, you can go now
 
-  send("alice", MsgStop())
+  send(idAlice, MsgStop())
   echo "bob is done"
 
 
 proc claire(count: int) {.cps:Work.} =
 
+  let self = getMyId()
+
   var i = 0
   while i < count:
-    send("claire", MsgHello())
+    send(self, MsgHello())
     discard recv()
     os.sleep(100)
     i = i + 1
@@ -87,9 +90,9 @@ proc main() =
 
   var pool = newPool(4)
 
-  pool.hatch "alice", alice()
-  pool.hatch "bob", bob()
-  pool.hatch "claire", claire(5)
+  let idAlice = pool.hatch alice()
+  let idBob = pool.hatch bob(idAlice)
+  let idClaire = pool.hatch claire(5)
 
   pool.run()
 
