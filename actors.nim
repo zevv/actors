@@ -13,7 +13,7 @@ type
 
   ActorId* = int
 
-  Work* = ref object of Continuation
+  Actor* = ref object of Continuation
     id: ActorId
     pool: Pool
 
@@ -28,6 +28,7 @@ type
 
   Pool* = ref object
 
+    # Used to assign unique ActorIds
     actorIdCounter: Atomic[int]
 
     # All workers in the pool. No lock needed, only main thread touches this
@@ -37,8 +38,8 @@ type
     workLock: Lock
     stop: bool
     workCond: Cond
-    workQueue: Deque[Work] # work that needs to be run asap on any worker
-    idleQueue: Table[ActorId, Work] # work that is waiting for messages
+    workQueue: Deque[Actor] # work that needs to be run asap on any worker
+    idleQueue: Table[ActorId, Actor] # work that is waiting for messages
 
     # mailboxes for the actors
     mailhubLock: Lock
@@ -48,7 +49,7 @@ type
     src*: ActorId
 
 
-proc pass*(cFrom, cTo: Work): Work =
+proc pass*(cFrom, cTo: Actor): Actor =
   cTo.pool = cFrom.pool
   cTo.id = cFrom.id
   cTo
@@ -61,7 +62,7 @@ proc workerThread(worker: Worker) {.thread.} =
 
     # Wait for work or stop request
 
-    var work: Work
+    var work: Actor
     withLock pool.workLock:
       while pool.workQueue.len == 0 and not pool.stop:
         pool.workCond.wait(pool.workLock)
@@ -84,7 +85,7 @@ proc workerThread(worker: Worker) {.thread.} =
   #echo &"worker {worker.id} stopping"
 
 
-proc getMyId*(c: Work): ActorId {.cpsVoodoo.} =
+proc getMyId*(c: Actor): ActorId {.cpsVoodoo.} =
   c.id
 
 # Create pool with work queue and worker threads
@@ -127,7 +128,7 @@ proc run*(pool: Pool) =
 
 
 
-proc hatchAux(pool: Pool, work: sink Work): ActorId =
+proc hatchAux(pool: Pool, work: sink Actor): ActorId =
 
   pool.actorIdCounter += 1
   let myId = pool.actorIdCounter.load()
@@ -154,11 +155,11 @@ proc hatchAux(pool: Pool, work: sink Work): ActorId =
 
 template hatch*(pool: Pool, c: typed): ActorId =
   # TODO verifyIsolated(work)
-  var work = Work(whelp c)
+  var work = Actor(whelp c)
   hatchAux(pool, work)
 
 
-proc freeze*(work: sink Work): Work {.cpsMagic.} =
+proc freeze*(work: sink Actor): Actor {.cpsMagic.} =
   # If this continuation as a message waiting, move it back to the work queue.
   # Otherwise, put it in the sleep queue
   #echo "freeze ", work.id
@@ -176,7 +177,7 @@ proc freeze*(work: sink Work): Work {.cpsMagic.} =
       work.wasMoved()
 
 
-proc recvAux*(work: Work): Message {.cpsVoodoo.} =
+proc recvAux*(work: Actor): Message {.cpsVoodoo.} =
   let pool {.cursor.} = work.pool
   withLock pool.mailhubLock:
     if work.id in pool.mailhubTable:
@@ -192,7 +193,7 @@ template recv*(): Message =
   recvAux()
 
 
-proc sendAux*(work: Work, dstActorId: ActorId, msg: sink Message): Work {.cpsMagic.} =
+proc sendAux*(work: Actor, dstActorId: ActorId, msg: sink Message): Actor {.cpsMagic.} =
 
   msg.src = work.id
 

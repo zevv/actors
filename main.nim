@@ -1,6 +1,7 @@
 
 import cps
 import actors
+import times
 import os
 import strformat
 
@@ -19,7 +20,7 @@ type
   MsgSleep = ref object of Message
 
 
-proc sendself() {.cps:Work.} =
+proc sendself() {.cps:Actor.} =
   let self = getMyId()
   echo "sending"
   send(self, MsgSleep())
@@ -30,7 +31,7 @@ proc sendself() {.cps:Work.} =
 
 # This thing answers questions
 
-proc alice() {.cps:Work.} =
+proc alice() {.cps:Actor.} =
 
   while true:
     let m = recv()
@@ -46,7 +47,7 @@ proc alice() {.cps:Work.} =
   echo "alice is done"
 
 
-proc bob(idAlice: ActorId) {.cps:Work.} =
+proc bob(idAlice: ActorId) {.cps:Actor.} =
 
   sendself()
 
@@ -72,7 +73,7 @@ proc bob(idAlice: ActorId) {.cps:Work.} =
   echo "bob is done"
 
 
-proc claire(count: int) {.cps:Work.} =
+proc claire(count: int) {.cps:Actor.} =
 
   let self = getMyId()
 
@@ -80,7 +81,9 @@ proc claire(count: int) {.cps:Work.} =
   while i < count:
     send(self, MsgHello())
     discard recv()
-    os.sleep(100)
+    let t_done = epochTime() + 0.1
+    while epochTime() < t_done:
+      discard
     i = i + 1
 
   echo "claire is done"
@@ -88,11 +91,13 @@ proc claire(count: int) {.cps:Work.} =
 
 proc main() =
 
-  var pool = newPool(4)
+  var pool = newPool(16)
 
   let idAlice = pool.hatch alice()
   let idBob = pool.hatch bob(idAlice)
-  let idClaire = pool.hatch claire(5)
+
+  for i in 1..4:
+    let idClaire = pool.hatch claire(10)
 
   pool.run()
 
