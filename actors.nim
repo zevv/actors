@@ -13,8 +13,6 @@ import bitline
 import isisolated
 
 
-const optLog = defined(actorsLog)
-
 type
 
   ActorId* = int
@@ -34,9 +32,6 @@ type
     queue: Deque[T]
 
   Pool* = object
-
-    # bitline log file
-    bitLine: Bitline
 
     # Used to assign unique ActorIds
     actorIdCounter: Atomic[int]
@@ -73,7 +68,7 @@ proc pass*(cFrom, cTo: Actor): Actor =
 proc send(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
 
   msg.src = srcId
-  echo &"  send {srcId} -> {dstId}: {msg.repr}"
+  #echo &"  send {srcId} -> {dstId}: {msg.repr}"
 
   withLock pool.mailhubLock:
     if dstId in pool.mailhubTable:
@@ -81,7 +76,7 @@ proc send(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
       withLock mailbox.lock:
         mailbox.queue.addLast(msg)
         # msg.wasMoved() # was it or was it not?
-        pool.bitline.logValue("actor." & $dstId & ".mailbox", mailbox.queue.len)
+        bitline.logValue("actor." & $dstId & ".mailbox", mailbox.queue.len)
     else:
       discard
       #raise ValueError.newException &"send: no mailbox for {dstId} found"
@@ -129,7 +124,7 @@ proc recvGetMessage*(actor: Actor): Message {.cpsVoodoo.} =
       let mailbox {.cursor.} = pool.mailhubTable[actor.id]
       withLock mailbox.lock:
         result = mailbox.queue.popFirst()
-        pool.bitline.logValue("actor." & $actor.id & ".mailbox", mailbox.queue.len)
+        bitline.logValue("actor." & $actor.id & ".mailbox", mailbox.queue.len)
     else:
       raise ValueError.newException &"recv: no mailbox for {actor.id} found"
 
@@ -148,7 +143,7 @@ proc workerThread(worker: Worker) {.thread.} =
 
     # Wait for actor or stop request
 
-    pool.bitline.logStart(wid & ".wait")
+    bitline.logStart(wid & ".wait")
 
     var actor: Actor
     withLock pool.workLock:
@@ -158,7 +153,7 @@ proc workerThread(worker: Worker) {.thread.} =
         break
       actor = pool.workQueue.popFirst()
 
-    pool.bitline.logStop(wid & ".wait")
+    bitline.logStop(wid & ".wait")
 
     # Trampoline once and push result back on the queue
 
@@ -168,13 +163,13 @@ proc workerThread(worker: Worker) {.thread.} =
         let aid = "actor." & $actor.id & ".run"
         let wid = "worker." & $worker.id & ".run"
 
-        pool.bitline.logStart(wid)
-        pool.bitline.logStart(aid)
+        bitline.logStart(wid)
+        bitline.logStart(aid)
 
         actor = trampoline(actor)
 
-        pool.bitline.logStop(wid)
-        pool.bitline.logStop(aid)
+        bitline.logStop(wid)
+        bitline.logStop(aid)
 
       if not isNil(actor) and isNil(actor.fn):
         echo &"actor {actor.id} has died, parent was {actor.parent_id}"
@@ -200,9 +195,6 @@ proc newPool*(nWorkers: int): ref Pool =
   var pool = new Pool
   initLock pool.workLock
   initCond pool.workCond
-
-  when optLog:
-    pool.bitline = newBitline("/tmp/nimactors.bl")
 
   for i in 0..<nWorkers:
     var worker = Worker(id: i) # Why the hell can't I initialize Worker(id: i, pool: Pool) ?
@@ -233,9 +225,6 @@ proc run*(pool: ref Pool) =
     worker.thread.joinThread()
 
   echo "all workers stopped"
-
-  when optLog:
-    pool.bitline.close()
 
 
 
