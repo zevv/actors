@@ -31,6 +31,10 @@ type
     lock: Lock
     queue: Deque[T]
 
+  MailHub = object
+    lock: Lock
+    table: Table[ActorId, Mailbox[Message]]
+
   Pool* = object
 
     # Used to assign unique ActorIds
@@ -47,14 +51,45 @@ type
     idleQueue: Table[ActorId, Actor] # actor that is waiting for messages
 
     # mailboxes for the actors
-    mailhubLock: Lock
-    mailhubTable: Table[ActorId, Mailbox[Message]]
+    mailhub: MailHub
 
   Message* = ref object of Rootobj
     src*: ActorId
 
   MessageDied* = ref object of Message
     id*: ActorId
+
+
+
+# Get number of mailboxes in a mailhub
+
+proc len(mailhub: var Mailhub): int =
+  withLock mailhub.lock:
+    result = mailhub.table.len
+
+# Create a new mailbox with the given id
+
+proc register(mailhub: var Mailhub, id: ActorId) =
+  var mailbox = new Mailbox[Message]
+  initLock mailbox.lock
+  withLock mailhub.lock:
+    mailhub.table[id] = mailbox
+
+# Unregister / destroy a mailbox from the hub
+
+proc unregister(mailhub: var Mailhub, id: ActorId) =
+  withLock mailhub.lock:
+    mailhub.table.del(id)
+
+# Do something with the given mailbox
+
+template withMailbox(mailhub: var Mailhub, id: ActorId, code: untyped) =
+  withLock mailhub.lock:
+    if id in mailhub.table:
+      var mailbox {.cursor,inject.} = mailhub.table[id]
+      withLock mailbox.lock:
+        code
+
 
 
 
@@ -70,16 +105,10 @@ proc send(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
   msg.src = srcId
   #echo &"  send {srcId} -> {dstId}: {msg.repr}"
 
-  withLock pool.mailhubLock:
-    if dstId in pool.mailhubTable:
-      let mailbox = pool.mailhubTable[dstId]
-      withLock mailbox.lock:
-        mailbox.queue.addLast(msg)
-        # msg.wasMoved() # was it or was it not?
-        bitline.logValue("actor." & $dstId & ".mailbox", mailbox.queue.len)
-    else:
-      discard
-      #raise ValueError.newException &"send: no mailbox for {dstId} found"
+  pool.mailhub.withMailbox(dstId):
+    mailbox.queue.addLast(msg)
+    # msg.wasMoved() # was it or was it not?
+    bitline.logValue("actor." & $dstId & ".mailbox", mailbox.queue.len)
 
   # If the target continuation is in the sleep queue, move it to the work queue
   withLock pool.workLock:
@@ -106,9 +135,7 @@ proc recvYield*(actor: sink Actor): Actor {.cpsMagic.} =
   # the idle queue. Otherwise, return the current continuation so it can
   # receive and handle the mail without yielding
   let pool = actor.pool
-  withLock pool.mailhubLock:
-    assert actor.id in pool.mailhubTable
-    let mailbox {.cursor.} = pool.mailhubTable[actor.id]
+  pool.mailhub.withMailbox(actor.id):
     if mailbox.queue.len == 0:
       withLock pool.workLock:
         pool.idleQueue[actor.id] = actor
@@ -119,14 +146,9 @@ proc recvYield*(actor: sink Actor): Actor {.cpsMagic.} =
 
 proc recvGetMessage*(actor: Actor): Message {.cpsVoodoo.} =
   let pool = actor.pool
-  withLock pool.mailhubLock:
-    if actor.id in pool.mailhubTable:
-      let mailbox {.cursor.} = pool.mailhubTable[actor.id]
-      withLock mailbox.lock:
-        result = mailbox.queue.popFirst()
-        bitline.logValue("actor." & $actor.id & ".mailbox", mailbox.queue.len)
-    else:
-      raise ValueError.newException &"recv: no mailbox for {actor.id} found"
+  pool.mailhub.withMailbox(actor.id):
+    result = mailbox.queue.popFirst()
+    bitline.logValue("actor." & $actor.id & ".mailbox", mailbox.queue.len)
 
 
 template recv*(): Message =
@@ -174,8 +196,7 @@ proc workerThread(worker: Worker) {.thread.} =
       if not isNil(actor) and isNil(actor.fn):
         echo &"actor {actor.id} has died, parent was {actor.parent_id}"
         # Delete the mailbox for this actor
-        withLock pool.mailhubLock:
-          pool.mailhubTable.del(actor.id)
+        pool.mailhub.unregister(actor.id)
         # Send a message to the parent
         if actor.parent_id > 0:
           let msg = MessageDied(id: actor.id)
@@ -209,10 +230,7 @@ proc newPool*(nWorkers: int): ref Pool =
 
 proc run*(pool: ref Pool) =
 
-  while true:
-    withLock pool.mailhubLock:
-      if pool.mailhubTable.len == 0:
-        break
+  while pool.mailhub.len > 0:
     os.sleep(50)
 
   echo "all mailboxes gone"
@@ -239,10 +257,7 @@ proc hatchAux(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId):
   actor.parentId = parentId
 
   # Register a mailbox for the actor
-  var mailbox = new Mailbox[Message]
-  initLock mailbox.lock
-  withLock pool.mailhubLock:
-    pool.mailhubTable[actor.id] = mailbox
+  pool.mailhub.register(actor.id)
 
   # Add the new actor to the work queue
   withLock pool.workLock:
@@ -256,8 +271,8 @@ proc hatchAux(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId):
 # Create and initialize a new actor
 
 template hatch*(pool: ref Pool, c: typed): ActorId =
-  # TODO verifyIsolated(actor)
   var actor = Actor(whelp c)
+  # TODO verifyIsolated(actor)
   hatchAux(pool, actor)
 
 

@@ -91,9 +91,9 @@ proc main() {.cps:Actor.} =
 
   # Hatch a number of bobs
 
-  for i in 1..2:
+  for i in 1..20:
     bobs.inc
-    discard hatch bob(idCalculator, 2)
+    discard hatch bob(idCalculator, 20)
 
   # Wait for all the bobs to finish, then kill the calculator
 
