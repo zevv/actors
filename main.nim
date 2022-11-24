@@ -74,7 +74,7 @@ proc claire(count: int) {.actor.} =
   while i < count:
     send(self, MsgHello())
     discard recv()
-    spin(1e-3)
+    os.sleep(5)
     i = i + 1
 
 

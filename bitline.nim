@@ -1,11 +1,11 @@
 
-import times
-
 
 const optBitline {.strdefine.} = ""
 
 
 when optBitline != "":
+
+  import times
 
   var fLog = open(optBitline, fmWrite)
 

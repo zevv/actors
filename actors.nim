@@ -140,7 +140,7 @@ proc send(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
 proc sendAux*(actor: Actor, dst: ActorId, msg: sink Message) {.cpsVoodoo.} =
   actor.pool.send(actor.id, dst, msg)
 
-template send*(dst: ActorId, msg: Message): typed =
+template send*(dst: ActorId, msg: Message) =
   verifyIsolated(msg)
   sendAux(dst, msg)
 
@@ -304,7 +304,6 @@ template hatch*(pool: ref Pool, c: typed): ActorId =
 
 proc hatchFromActor*(actor: Actor, newActor: sink Actor): ActorId {.cpsVoodoo.} =
   assert rcCount(actor) == 0
-  let pool = actor.pool
   hatchAux(actor.pool, newActor, actor.id)
 
 # Create and initialize a new actor from within an actor
