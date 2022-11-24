@@ -137,7 +137,7 @@ template withMailbox(mailhub: var Mailhub, id: ActorId, code: untyped) =
 proc send(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
 
   msg.src = srcId
-  echo &"  send {srcId} -> {dstId}: {msg.repr}"
+  #echo &"  send {srcId} -> {dstId}: {msg.repr}"
 
   pool.mailhub.withMailbox(dstId):
     assertIsolated(msg)
@@ -262,10 +262,10 @@ proc newPool*(nWorkers: int): ref Pool =
 proc run*(pool: ref Pool) =
 
   while pool.mailhub.len > 0:
-    echo pool.mailhub.len
     let mi = mallinfo2()
-    bitline.logValue("mem.alloc", mi.uordblks)
-    bitline.logValue("mem.arena", mi.arena)
+    bitline.logValue("stats.mailboxes", pool.mailhub.len)
+    bitline.logValue("stats.mem_alloc", mi.uordblks)
+    bitline.logValue("stats.mem_arena", mi.arena)
     os.sleep(10)
 
   echo "all mailboxes gone"
@@ -325,7 +325,10 @@ proc hatchFromActor*(actor: Actor, newActor: sink Actor): ActorId {.cpsVoodoo.} 
 template hatch*(c: typed): ActorId =
   var actor = Actor(whelp c)
   assertIsolated(actor)
-  hatchFromActor(actor)
+  # TODO: workaround for CPS problem: first assign to local var to prevent CPS
+  # from moving the actor itself into the environment
+  let id = hatchFromActor(actor)
+  id
 
 # Yield but go back to the work queue
 

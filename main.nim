@@ -82,24 +82,22 @@ proc sleepy() {.actor.} =
 
 proc main() {.actor.} =
 
-  # TODO: if the result is discarted the actor will go on the CPS env, leaking a ref
-  let idClaire = hatch claire(10)
+  var kids = 0
+  
+  claire(10)
 
-  # Hatch a calculator
+  discard hatch claire(10)
+  inc kids
 
   let idCalculator = hatch calculator()
   
-  var kids = 21
-
-  # Hatch a number of bobs
-
   var i = 0
   while i < 20:
-    # TODO: if the result is discarted the actor will go on the CPS env, leaking a ref
-    let id = hatch bob(idCalculator, 20)
+    discard hatch bob(idCalculator, 100)
+    inc kids
     inc i
 
-  # Wait for all the bobs to finish, then kill the calculator
+  # Wait for all the kids to finish, then kill the calculator
 
   while true:
 
