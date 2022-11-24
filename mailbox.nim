@@ -23,7 +23,6 @@ type
     lock*: Lock
     table*: Table[ActorId, Mailbox[Message]]
 
-
   Message* = ref object of Rootobj
     src*: ActorId
 
@@ -56,7 +55,7 @@ proc unregister*(mailhub: var Mailhub, id: ActorId) =
 
 # Do something with the given mailbox while holding the proper locks
 
-template withMailbox*(mailhub: var Mailhub, id: ActorId, code: untyped) =
+template withMailbox(mailhub: var Mailhub, id: ActorId, code: untyped) =
   withLock mailhub.lock:
     if id in mailhub.table:
       var mailbox {.cursor,inject.} = mailhub.table[id]
@@ -70,8 +69,6 @@ proc sendTo*(mailhub: var Mailhub, srcId, dstId: ActorID, msg: sink Message) =
     assertIsolated(msg)
     mailbox.queue.addLast(msg)
     bitline.logValue("actor." & $dstId & ".mailbox", mailbox.queue.len)
-
-  
 
 proc tryRecv*(mailhub: var Mailhub, id: ActorId): Message =
   var len: int

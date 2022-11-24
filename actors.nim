@@ -26,28 +26,28 @@ type
     parentId*: ActorId
     pool*: ptr Pool
 
-  Worker* = object
-    id*: int
-    thread*: Thread[ptr Worker]
-    pool*: ptr Pool
+  Worker = object
+    id: int
+    thread: Thread[ptr Worker]
+    pool: ptr Pool
 
   Pool* = object
 
     # Used to assign unique ActorIds
-    actorIdCounter*: Atomic[int]
+    actorIdCounter: Atomic[int]
 
     # All workers in the pool. No lock needed, only main thread touches this
-    workers*: seq[ref Worker]
+    workers: seq[ref Worker]
 
     # This is where the continuations wait when not running
-    workLock*: Lock
-    stop*: bool
-    workCond*: Cond
-    workQueue*: Deque[Actor] # actor that needs to be run asap on any worker
-    idleQueue*: Table[ActorId, Actor] # actor that is waiting for messages
+    workLock: Lock
+    stop: bool
+    workCond: Cond
+    workQueue: Deque[Actor] # actor that needs to be run asap on any worker
+    idleQueue: Table[ActorId, Actor] # actor that is waiting for messages
 
     # mailboxes for the actors
-    mailhub*: MailHub
+    mailhub: MailHub
 
     # Event queue glue. please ignore
     evqActorId*: ActorId
@@ -189,6 +189,49 @@ proc workerThread(worker: ptr Worker) {.thread.} =
 proc self*(c: Actor): ActorId {.cpsVoodoo.} =
   c.id
 
+
+proc hatchAux(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId): ActorId =
+
+  assert not isNil(actor)
+  assertIsolated(actor)
+
+  pool.actorIdCounter += 1
+  let id = pool.actorIdCounter.load().ActorID
+
+  actor.pool = pool[].addr
+  actor.id = id
+  actor.parentId = parentId
+
+  # Register a mailbox for the actor
+  pool.mailhub.register(actor.id)
+
+  # Add the new actor to the work queue
+  withLock pool.workLock:
+    assertIsolated(actor)
+    pool.workQueue.addLast actor
+    pool.workCond.signal()
+
+  id
+
+  
+# Create and initialize a new actor
+
+template hatch*(pool: ref Pool, c: typed): ActorId =
+  var actor = Actor(whelp c)
+  hatchAux(pool, actor)
+
+# Hatch an actor from within an actor
+
+proc hatchFromActor*(actor: Actor, newActor: sink Actor): ActorId {.cpsVoodoo.} =
+  hatchAux(actor.pool, newActor, actor.id)
+
+# Create and initialize a new actor from within an actor
+
+template hatch*(c: typed): ActorId =
+  let actor = Actor(whelp c)
+  hatchFromActor(actor)
+
+
 # Create pool with actor queue and worker threads
 
 proc newPool*(nWorkers: int): ref Pool =
@@ -205,55 +248,6 @@ proc newPool*(nWorkers: int): ref Pool =
     createThread(worker.thread, workerThread, worker[].addr)
 
   pool
-
-
-proc hatchAux(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId): ActorId =
-
-  assert not isNil(actor)
-  assertIsolated(actor)
-
-  pool.actorIdCounter += 1
-  let myId = pool.actorIdCounter.load().ActorID
-
-  actor.pool = pool[].addr
-  actor.id = myId
-  actor.parentId = parentId
-
-  # Register a mailbox for the actor
-  pool.mailhub.register(actor.id)
-
-  # Add the new actor to the work queue
-  withLock pool.workLock:
-    assertIsolated(actor)
-    pool.workQueue.addLast actor
-    pool.workCond.signal()
-
-  myId
-
-  
-# Create and initialize a new actor
-
-template hatch*(pool: ref Pool, c: typed): ActorId =
-  var actor = Actor(whelp c)
-  assertIsolated(actor)
-  let id = hatchAux(pool, actor)
-  actor = nil
-  id
-
-# Hatch an actor from within an actor
-
-proc hatchFromActor*(actor: Actor, newActor: sink Actor): ActorId {.cpsVoodoo.} =
-  assertIsolated(actor)
-  hatchAux(actor.pool, newActor, actor.id)
-
-# Create and initialize a new actor from within an actor
-
-template hatch*(c: typed): ActorId =
-  var actor = Actor(whelp c)
-  assertIsolated(actor)
-  # TODO: workaround for CPS problem: first assign to local var to prevent CPS
-  # from moving the actor itself into the environment
-  hatchFromActor(actor)
 
 
 # Wait until all actors in the pool have died and cleanup
