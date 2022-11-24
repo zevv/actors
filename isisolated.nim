@@ -35,41 +35,31 @@ template head(p: pointer): Cell =
   cast[Cell](cast[int](p) -% sizeof(RefHeader))
 
 
-
-# Anything not ref, seq or array is isolated
-
 proc isIsolated*[T: not (ref or seq or array or object or tuple)](v: T): bool =
-  #echo "- ", typeof(v), " ", v.repr
   true
 
 
-# Iterate all elements of seqs and arrays
-
 proc isIsolated*[T: seq or array](vs: T): bool =
-  #echo "- ",  vs.repr
   for v in vs:
     if not isIsolated(v):
       return false
   true
 
 
-# Iterate all fields of objects
-
 proc isIsolated*[T: (object or tuple) and not ref](v: T): bool =
-  #echo "- ", v.repr
-  for v in fields(v):
-    if not isIsolated(v):
+  for k, v in fieldPairs(v):
+    let iso = isIsolated(v)
+    echo "- ", k, " ", iso
+    if not iso:
       return false
   true
 
-
-# Check RC on refs
 
 proc isIsolated*[T: ref](v: T): bool =
   let p = cast[pointer](v)
   if p != nil:
     let rc = head(p).rc shr rcShift
-    #echo "- ref ", v.repr, ", RC: ", rc
+    echo "- ", rc
     # TODO: naive check
     if rc > 0:
       false
@@ -78,23 +68,13 @@ proc isIsolated*[T: ref](v: T): bool =
   else:
     true
 
-
-proc verifyIsolated*[T:ref](v: T) =
-  {.gcsafe.}:
-    if not isIsolated(v):
-      raise newException(NotIsolatedError, "")
-
-
-proc rcCount*[T](v: ref[T]): int =
-  let p = cast[pointer](v)
-  if p != nil:
-    let rc = head(p).rc shr rcShift
-    echo "== rc ", rc, " ", $v
-    return rc
-
-
-proc setRc*[T](v: ref[T], rcSet: int): int =
-  let p = cast[pointer](v)
-  if p != nil:
-    let rc = head(p).rc shr rcShift
-    echo "== rc ", rc, "->", rcSet, " ", $v
+proc assertIsolated*[T:ref](v: T) =
+  when compileOption("assertions"):
+    # For now, only look at the top ref RC
+    let p = cast[pointer](v)
+    if p != nil:
+      let rc = head(p).rc shr rcShift
+      echo "== rc ", rc, " ", $v
+      assert rc == 0
+  else:
+    discard

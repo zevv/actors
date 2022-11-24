@@ -136,7 +136,7 @@ proc send(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
   #echo &"  send {srcId} -> {dstId}: {msg.repr}"
 
   pool.mailhub.withMailbox(dstId):
-    assert rcCount(msg) == 0
+    assertIsolated(msg)
     mailbox.queue.addLast(msg)
     bitline.logValue("actor." & $dstId & ".mailbox", mailbox.queue.len)
 
@@ -146,7 +146,7 @@ proc send(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
       #echo "wake ", dstId
       var actor = pool.idleQueue[dstId]
       pool.idleQueue.del(dstId)
-      assert rcCount(actor) == 0
+      assertIsolated(actor)
       pool.workQueue.addLast(actor)
       pool.workCond.signal()
 
@@ -155,7 +155,7 @@ proc sendAux*(actor: Actor, dst: ActorId, msg: sink Message) {.cpsVoodoo.} =
   actor.pool.send(actor.id, dst, msg)
 
 template send*(dst: ActorId, msg: Message) =
-  verifyIsolated(msg)
+  assertIsolated(msg)
   sendAux(dst, msg)
 
 
@@ -177,7 +177,7 @@ proc recvGetMessage*(actor: Actor): Message {.cpsVoodoo.} =
   let pool = actor.pool
   pool.mailhub.withMailbox(actor.id):
     result = mailbox.queue.popFirst()
-    assert rcCount(result) == 0
+    assertIsolated(result)
     bitline.logValue("actor." & $actor.id & ".mailbox", mailbox.queue.len)
 
 
@@ -193,7 +193,7 @@ proc waitForWork(pool: ptr Pool): Actor =
       pool.workCond.wait(pool.workLock)
     if not pool.stop:
       result = pool.workQueue.popFirst()
-      assert rcCount(result) == 0
+      assertIsolated(result)
 
 
 proc workerThread(worker: ptr Worker) {.thread.} =
@@ -212,26 +212,18 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     if actor.isNil:
       break
     
-    assert rcCount(actor) == 0
+    assertIsolated(actor)
 
     # Trampoline the continuation
 
-    #echo "\e[35mtramp ", actor.id, " on worker ", worker.id, "\e[0m"
-    let aid = "actor." & $actor.id & ".run"
-
-    bitline.logStart(wid)
-    bitline.logStart(aid)
-
-    {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
-      actor = trampoline(actor)
-
-    bitline.logStop(wid)
-    bitline.logStop(aid)
+    bitline.log "worker." & $worker.id & ".run":
+      {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
+        actor = trampoline(actor)
 
     # Cleanup if continuation has finixhed
 
     if actor.finished:
-      assert rcCount(actor) == 0
+      assertIsolated(actor)
       #echo &"actor {actor.id} has died, parent was {actor.parent_id}"
       pool.mailhub.unregister(actor.id)
       let msg = MessageDied(id: actor.id)
@@ -279,7 +271,7 @@ proc run*(pool: ref Pool) =
 
   for worker in pool.workers:
     worker.thread.joinThread()
-    assert rcCount(worker) == 0
+    assertIsolated(worker)
 
   echo "all workers stopped"
 
@@ -287,7 +279,7 @@ proc run*(pool: ref Pool) =
 proc hatchAux(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId): ActorId =
 
   assert not isNil(actor)
-  assert rcCount(actor) == 0
+  assertIsolated(actor)
 
   pool.actorIdCounter += 1
   let myId = pool.actorIdCounter.load()
@@ -301,7 +293,7 @@ proc hatchAux(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId):
 
   # Add the new actor to the work queue
   withLock pool.workLock:
-    assert rcCount(actor) == 0
+    assertIsolated(actor)
     pool.workQueue.addLast actor
     pool.workCond.signal()
 
@@ -312,7 +304,7 @@ proc hatchAux(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId):
 
 template hatch*(pool: ref Pool, c: typed): ActorId =
   var actor = Actor(whelp c)
-  assert rcCount(actor) == 0
+  assertIsolated(actor)
   let id = hatchAux(pool, actor)
   actor = nil
   id
@@ -320,14 +312,14 @@ template hatch*(pool: ref Pool, c: typed): ActorId =
 # Hatch an actor from within an actor
 
 proc hatchFromActor*(actor: Actor, newActor: sink Actor): ActorId {.cpsVoodoo.} =
-  assert rcCount(actor) == 0
+  assertIsolated(actor)
   hatchAux(actor.pool, newActor, actor.id)
 
 # Create and initialize a new actor from within an actor
 
 template hatch*(c: typed): ActorId =
   var actor = Actor(whelp c)
-  assert rcCount(actor) == 0
+  assertIsolated(actor)
   hatchFromActor(actor)
 
 # Yield but go back to the work queue
@@ -335,7 +327,7 @@ template hatch*(c: typed): ActorId =
 proc backoff*(actor: sink Actor): Actor {.cpsMagic.} =
   let pool = actor.pool
   withLock pool.workLock:
-    assert rcCount(actor) == 0
+    assertIsolated(actor)
     pool.workQueue.addLast(actor)
 
 
