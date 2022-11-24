@@ -54,7 +54,7 @@ type
     # mailboxes for the actors
     mailhub: MailHub
 
-    # Event queue glue
+    # Event queue glue. please ignore
     evqActorId*: ActorId
     evqFdWake*: cint
 
@@ -247,7 +247,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
 
 
 
-proc getMyId*(c: Actor): ActorId {.cpsVoodoo.} =
+proc self*(c: Actor): ActorId {.cpsVoodoo.} =
   c.id
 
 # Create pool with actor queue and worker threads

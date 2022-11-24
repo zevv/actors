@@ -70,17 +70,11 @@ proc spin(t: float) =
 
 proc claire(count: int) {.actor.} =
 
-  let self = getMyId()
-
   var i = 0
   while i < count:
-    send(self, MsgHello())
+    send(self(), MsgHello())
     discard recv()
     i = i + 1
-
-
-proc sleepy() {.actor.} = 
-  os.sleep(10)
 
 
 
@@ -118,7 +112,16 @@ proc main() {.actor.} =
   echo "main is done"
 
 
+
+proc ticker() {.actor.} = 
+  while true:
+    echo "-----------------------"
+    os.sleep(100)
+
+
 proc main2() {.actor.} =
+
+  let id = hatch ticker()
 
   addFd(0)
 
@@ -127,11 +130,15 @@ proc main2() {.actor.} =
     let m = recv()
 
     if m of MessageEvqEvent:
-      echo "got event"
       var buf = newString(1024)
       let r = posix.read(0, buf[0].addr, buf.len)
-      buf.setLen if r > 0: r else: 0
-      echo "> ", buf
+
+      if r > 0:
+        buf.setLen if r > 0: r else: 0
+        echo "> ", buf
+      else:
+        delFd(0)
+        break
 
 
 proc go() =

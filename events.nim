@@ -40,13 +40,14 @@ type
   MessageEvqAddFd* = ref object of Message
     fd: cint
   
+  MessageEvqDelFd* = ref object of Message
+    fd: cint
+  
   MessageEvqEvent* = ref object of Message
   
 
 proc handleMessage(evq: Evq) {.actor.} =
-  echo "prerecv"
   var m = recv()
-  echo "recv ", $m
     
   if m of MessageEvqAddTimer:
     let interval = m.MessageEvqAddTimer.interval
@@ -69,6 +70,10 @@ proc handleMessage(evq: Evq) {.actor.} =
     let io = Io(kind: iokFd, actorId: m.src)
     evq.ios[fd] = io
 
+  elif m of MessageEvqDelFd:
+    let fd = m.MessageEvqAddFd.fd
+    discard epoll_ctl(evq.epfd, EPOLL_CTL_DEL, fd.cint, nil)
+    evq.ios.del(fd)
 
 
 # This actor is special, as it has to wait on both the epoll and the regular
@@ -116,6 +121,11 @@ proc addTimer*(actor: Actor, interval: float) {.cpsVoodoo.} =
 
 proc addFd*(actor: Actor, fd: cint) {.cpsVoodoo.} =
   let msg = MessageEvqAddFd(fd: fd)
+  send(actor.pool, actor.id, actor.pool.evqActorId, msg)
+
+
+proc delFd*(actor: Actor, fd: cint) {.cpsVoodoo.} =
+  let msg = MessageEvqDelFd(fd: fd)
   send(actor.pool, actor.id, actor.pool.evqActorId, msg)
 
 
