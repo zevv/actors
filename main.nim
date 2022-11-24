@@ -6,8 +6,9 @@ import std/posix
 
 import cps
 import actors
-import types
 import events
+import actorid
+import mailbox
 
 
 type

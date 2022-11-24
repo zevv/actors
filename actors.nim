@@ -12,7 +12,7 @@ import std/times
 import cps
 
 import bitline
-import types
+import actorid
 import mailbox
 import isisolated
 
@@ -20,6 +20,39 @@ import isisolated
 # FFI for glib mallinfo()
 
 type 
+
+  Actor* = ref object of Continuation
+    id*: ActorId
+    parentId*: ActorId
+    pool*: ptr Pool
+
+  Worker* = object
+    id*: int
+    thread*: Thread[ptr Worker]
+    pool*: ptr Pool
+
+  Pool* = object
+
+    # Used to assign unique ActorIds
+    actorIdCounter*: Atomic[int]
+
+    # All workers in the pool. No lock needed, only main thread touches this
+    workers*: seq[ref Worker]
+
+    # This is where the continuations wait when not running
+    workLock*: Lock
+    stop*: bool
+    workCond*: Cond
+    workQueue*: Deque[Actor] # actor that needs to be run asap on any worker
+    idleQueue*: Table[ActorId, Actor] # actor that is waiting for messages
+
+    # mailboxes for the actors
+    mailhub*: MailHub
+
+    # Event queue glue. please ignore
+    evqActorId*: ActorId
+    evqFdWake*: cint
+
   mallinfo = object
     arena: csize_t
     ordblks: csize_t
@@ -31,6 +64,17 @@ type
     uordblks: csize_t
     fordblks: csize_t
     keepcost: csize_t
+
+
+proc `$`*(pool: ref Pool): string =
+  return "#POOL<>"
+
+proc `$`*(worker: ref Worker | ptr Worker): string =
+  return "#WORKER<" & $worker.id & ">"
+
+proc `$`*(a: Actor): string =
+  return "#ACT<" & $a.parent_id & "." & $a.id & ">"
+
 
 proc mallinfo2(): mallinfo {.importc: "mallinfo2".}
 

@@ -9,9 +9,30 @@ import std/posix
 import std/atomics
 import std/times
 
-import types
+import actorid
 import isisolated
 import bitline
+
+type
+  
+  Mailbox*[T] = ref object
+    lock*: Lock
+    queue*: Deque[T]
+
+  MailHub* = object
+    lock*: Lock
+    table*: Table[ActorId, Mailbox[Message]]
+
+
+  Message* = ref object of Rootobj
+    src*: ActorId
+
+  MessageDied* = ref object of Message
+    id*: ActorId
+
+proc `$`*(m: Message): string =
+  return "#MSG<" & $m.src & ">"
+
 
 # Get number of mailboxes in a mailhub
 

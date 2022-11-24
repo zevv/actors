@@ -5,8 +5,9 @@ import std/tables
 
 import cps
 
-import types
+import actorid
 import actors
+import mailbox
 
 
 proc timerfd_create(clock_id: ClockId, flags: cint): cint
