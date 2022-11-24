@@ -6,6 +6,7 @@ import std/tables
 import cps
 
 import actorid
+import actorapi
 import actors
 import mailbox
 

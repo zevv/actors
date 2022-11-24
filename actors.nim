@@ -47,7 +47,7 @@ type
     idleQueue: Table[ActorId, Actor] # actor that is waiting for messages
 
     # mailboxes for the actors
-    mailhub: MailHub
+    mailhub*: MailHub
 
     # Event queue glue. please ignore
     evqActorId*: ActorId
@@ -86,9 +86,14 @@ proc pass*(cFrom, cTo: Actor): Actor =
   cTo.id = cFrom.id
   cTo
 
-macro actor*(n: untyped): untyped =
-  n.addPragma nnkExprColonExpr.newTree(ident"cps", ident"Actor")
-  n     
+
+proc waitForWork(pool: ptr Pool): Actor =
+  withLock pool.workLock:
+    while pool.workQueue.len == 0 and not pool.stop:
+      pool.workCond.wait(pool.workLock)
+    if not pool.stop:
+      result = pool.workQueue.popFirst()
+      assertIsolated(result)
 
 
 # Send a message from srcId to dstId
@@ -108,46 +113,17 @@ proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
       pool.workQueue.addLast(actor)
       pool.workCond.signal()
 
-  # If the message is sent to the event queue, also write a byte to its
-  # wake fd
+  # If the message is sent to the event queue, also write a byte to its wake fd
   if dstId == pool.evqActorId:
     let b: char = 'x'
     discard posix.write(pool.evqFdWake, b.addr, 1)
 
 
-proc send*(actor: Actor, dst: ActorId, msg: sink Message) {.cpsVoodoo.} =
-  actor.pool.send(actor.id, dst, msg)
-
-
-proc jield*(actor: sink Actor): Actor {.cpsMagic.} =
-  let pool = actor.pool
+proc jieldActor*(pool: ptr Pool, actor: sink Actor) =
   withLock pool.workLock:
     #assertIsolated(actor) # TODO
     pool.idleQueue[actor.id] = actor
     actor = nil
-
-
-proc tryRecv*(actor: Actor): Message {.cpsVoodoo.} =
-  result = actor.pool.mailhub.tryRecv(actor.id)
-
-
-template recv*(): Message =
-  # TODO: why the need to set to nil?
-  var msg: Message = nil
-  while msg.isNil:
-    msg = tryRecv()
-    if msg.isNil:
-      jield()
-  msg
-
-
-proc waitForWork(pool: ptr Pool): Actor =
-  withLock pool.workLock:
-    while pool.workQueue.len == 0 and not pool.stop:
-      pool.workCond.wait(pool.workLock)
-    if not pool.stop:
-      result = pool.workQueue.popFirst()
-      assertIsolated(result)
 
 
 proc workerThread(worker: ptr Worker) {.thread.} =
@@ -184,13 +160,11 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       pool.send(0.ActorId, actor.parent_id, msg)
       
 
-
-
 proc self*(c: Actor): ActorId {.cpsVoodoo.} =
   c.id
 
 
-proc hatchAux(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId): ActorId =
+proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId): ActorId =
 
   assert not isNil(actor)
   assertIsolated(actor)
@@ -213,23 +187,13 @@ proc hatchAux(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId):
 
   id
 
-  
+
 # Create and initialize a new actor
 
 template hatch*(pool: ref Pool, c: typed): ActorId =
   var actor = Actor(whelp c)
   hatchAux(pool, actor)
 
-# Hatch an actor from within an actor
-
-proc hatchFromActor*(actor: Actor, newActor: sink Actor): ActorId {.cpsVoodoo.} =
-  hatchAux(actor.pool, newActor, actor.id)
-
-# Create and initialize a new actor from within an actor
-
-template hatch*(c: typed): ActorId =
-  let actor = Actor(whelp c)
-  hatchFromActor(actor)
 
 
 # Create pool with actor queue and worker threads

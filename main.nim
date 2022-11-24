@@ -8,6 +8,7 @@ import cps
 import actors
 import events
 import actorid
+import actorapi
 import mailbox
 
 
