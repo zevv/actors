@@ -83,3 +83,18 @@ proc verifyIsolated*[T:ref](v: T) =
   {.gcsafe.}:
     if not isIsolated(v):
       raise newException(NotIsolatedError, "")
+
+
+proc rcCount*[T](v: ref[T]): int =
+  let p = cast[pointer](v)
+  if p != nil:
+    let rc = head(p).rc shr rcShift
+    echo "== rc ", rc, " ", $v
+    return rc
+
+
+proc setRc*[T](v: ref[T], rcSet: int): int =
+  let p = cast[pointer](v)
+  if p != nil:
+    let rc = head(p).rc shr rcShift
+    echo "== rc ", rc, "->", rcSet, " ", $v

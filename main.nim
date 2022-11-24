@@ -4,6 +4,7 @@ import actors
 import times
 import os
 import strformat
+import isisolated
 
 type
 
@@ -73,7 +74,7 @@ proc claire(count: int) {.actor.} =
   while i < count:
     send(self, MsgHello())
     discard recv()
-    spin(1e-6)
+    spin(1e-3)
     i = i + 1
 
 
@@ -83,6 +84,8 @@ proc sleepy() {.actor.} =
 
 proc main() {.actor.} =
 
+#  discard hatch claire(100)
+
   # Hatch a calculator
 
   let idCalculator = hatch calculator()
@@ -91,9 +94,12 @@ proc main() {.actor.} =
 
   # Hatch a number of bobs
 
-  for i in 1..20:
-    bobs.inc
-    discard hatch bob(idCalculator, 20)
+  var i = 0
+  while i < 2:
+    inc bobs
+    inc i
+    # TODO: If I discard this id, CPS does something different and I leak a ref
+    let id = hatch bob(idCalculator, 2)
 
   # Wait for all the bobs to finish, then kill the calculator
 
@@ -116,6 +122,7 @@ proc go() =
   var pool = newPool(4)
   discard pool.hatch main()
   pool.run()
+  echo rcCount(pool)
 
 
 go()

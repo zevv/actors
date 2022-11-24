@@ -13,7 +13,6 @@ import cps
 import bitline
 import isisolated
 
-
 type
 
   ActorId* = int
@@ -23,9 +22,9 @@ type
     parentId: ActorId
     pool: ptr Pool
 
-  Worker = ref object
+  Worker = object
     id: int
-    thread: Thread[Worker]
+    thread: Thread[ptr Worker]
     pool: ptr Pool
 
   Mailbox[T] = ref object
@@ -42,7 +41,7 @@ type
     actorIdCounter: Atomic[int]
 
     # All workers in the pool. No lock needed, only main thread touches this
-    workers: seq[Worker]
+    workers: seq[ref Worker]
 
     # This is where the continuations wait when not running
     workLock: Lock
@@ -60,6 +59,29 @@ type
   MessageDied* = ref object of Message
     id*: ActorId
 
+
+# Misc helper procs
+
+proc `$`*(pool: ref Pool): string =
+  return "#POOL<>"
+
+proc `$`*(worker: ref Worker | ptr Worker): string =
+  return "#WORKER<" & $worker.id & ">"
+
+proc `$`*(a: Actor): string =
+  return "#ACT<" & $a.parent_id & "." & $a.id & ">"
+
+proc `$`*(m: Message): string =
+  return "#MSG<" & $m.src & ">"
+
+proc pass*(cFrom, cTo: Actor): Actor =
+  cTo.pool = cFrom.pool
+  cTo.id = cFrom.id
+  cTo
+
+macro actor*(n: untyped): untyped =
+  n.addPragma nnkExprColonExpr.newTree(ident"cps", ident"Actor")
+  n     
 
 
 # Get number of mailboxes in a mailhub
@@ -82,7 +104,7 @@ proc unregister(mailhub: var Mailhub, id: ActorId) =
   withLock mailhub.lock:
     mailhub.table.del(id)
 
-# Do something with the given mailbox
+# Do something with the given mailbox while holding the proper locks
 
 template withMailbox(mailhub: var Mailhub, id: ActorId, code: untyped) =
   withLock mailhub.lock:
@@ -92,14 +114,7 @@ template withMailbox(mailhub: var Mailhub, id: ActorId, code: untyped) =
         code
 
 
-
-
-
-proc pass*(cFrom, cTo: Actor): Actor =
-  cTo.pool = cFrom.pool
-  cTo.id = cFrom.id
-  cTo
-
+# Send a message from srcId to dstId
 
 proc send(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
 
@@ -107,8 +122,8 @@ proc send(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
   #echo &"  send {srcId} -> {dstId}: {msg.repr}"
 
   pool.mailhub.withMailbox(dstId):
+    assert rcCount(msg) == 0
     mailbox.queue.addLast(msg)
-    # msg.wasMoved() # was it or was it not?
     bitline.logValue("actor." & $dstId & ".mailbox", mailbox.queue.len)
 
   # If the target continuation is in the sleep queue, move it to the work queue
@@ -117,14 +132,13 @@ proc send(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
       #echo "wake ", dstId
       var actor = pool.idleQueue[dstId]
       pool.idleQueue.del(dstId)
+      assert rcCount(actor) == 0
       pool.workQueue.addLast(actor)
       pool.workCond.signal()
-      actor.wasMoved
 
 
 proc sendAux*(actor: Actor, dst: ActorId, msg: sink Message) {.cpsVoodoo.} =
   actor.pool.send(actor.id, dst, msg)
-
 
 template send*(dst: ActorId, msg: Message): typed =
   verifyIsolated(msg)
@@ -140,7 +154,7 @@ proc recvYield*(actor: sink Actor): Actor {.cpsMagic.} =
     if mailbox.queue.len == 0:
       withLock pool.workLock:
         pool.idleQueue[actor.id] = actor
-      actor.wasMoved()
+        #actor = nil
     else:
       result = actor
 
@@ -149,6 +163,7 @@ proc recvGetMessage*(actor: Actor): Message {.cpsVoodoo.} =
   let pool = actor.pool
   pool.mailhub.withMailbox(actor.id):
     result = mailbox.queue.popFirst()
+    assert rcCount(result) == 0
     bitline.logValue("actor." & $actor.id & ".mailbox", mailbox.queue.len)
 
 
@@ -163,10 +178,12 @@ proc waitForWork(pool: ptr Pool): Actor =
     while pool.workQueue.len == 0 and not pool.stop:
       pool.workCond.wait(pool.workLock)
     if not pool.stop:
-      return pool.workQueue.popFirst()
+      result = pool.workQueue.popFirst()
+      assert rcCount(result) == 0
 
 
-proc workerThread(worker: Worker) {.thread.} =
+proc workerThread(worker: ptr Worker) {.thread.} =
+
   let pool = worker.pool
   let wid = "worker." & $worker.id
 
@@ -180,6 +197,8 @@ proc workerThread(worker: Worker) {.thread.} =
     
     if actor.isNil:
       break
+    
+    assert rcCount(actor) == 0
 
     # Trampoline the continuation
 
@@ -198,15 +217,13 @@ proc workerThread(worker: Worker) {.thread.} =
     # Cleanup if continuation has finixhed
 
     if actor.finished:
+      assert rcCount(actor) == 0
       #echo &"actor {actor.id} has died, parent was {actor.parent_id}"
       pool.mailhub.unregister(actor.id)
       let msg = MessageDied(id: actor.id)
       pool.send(0, actor.parent_id, msg)
       
 
-macro actor*(n: untyped): untyped =
-  n.addPragma nnkExprColonExpr.newTree(ident"cps", ident"Actor")
-  n     
 
 
 proc getMyId*(c: Actor): ActorId {.cpsVoodoo.} =
@@ -221,10 +238,11 @@ proc newPool*(nWorkers: int): ref Pool =
   initCond pool.workCond
 
   for i in 0..<nWorkers:
-    var worker = Worker(id: i) # Why the hell can't I initialize Worker(id: i, pool: Pool) ?
+    var worker = new Worker
+    worker.id = i
     worker.pool = pool[].addr
     pool.workers.add worker
-    createThread(worker.thread, workerThread, worker)
+    createThread(worker.thread, workerThread, worker[].addr)
 
   pool
 
@@ -244,13 +262,15 @@ proc run*(pool: ref Pool) =
 
   for worker in pool.workers:
     worker.thread.joinThread()
+    discard rcCount(worker)
 
   echo "all workers stopped"
 
 
-
-
 proc hatchAux(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId): ActorId =
+
+  assert not isNil(actor)
+  assert rcCount(actor) == 0
 
   pool.actorIdCounter += 1
   let myId = pool.actorIdCounter.load()
@@ -264,9 +284,9 @@ proc hatchAux(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId):
 
   # Add the new actor to the work queue
   withLock pool.workLock:
+    assert rcCount(actor) == 0
     pool.workQueue.addLast actor
     pool.workCond.signal()
-    actor.wasMoved()
 
   myId
 
@@ -275,27 +295,31 @@ proc hatchAux(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId):
 
 template hatch*(pool: ref Pool, c: typed): ActorId =
   var actor = Actor(whelp c)
-  # TODO verifyIsolated(actor)
-  hatchAux(pool, actor)
+  assert rcCount(actor) == 0
+  let id = hatchAux(pool, actor)
+  actor = nil
+  id
 
+# Hatch an actor from within an actor
 
-proc hatchFromActor*(actor: Actor, newActor: Actor): ActorId {.cpsVoodoo.} =
+proc hatchFromActor*(actor: Actor, newActor: sink Actor): ActorId {.cpsVoodoo.} =
+  assert rcCount(actor) == 0
   let pool = actor.pool
   hatchAux(actor.pool, newActor, actor.id)
 
 # Create and initialize a new actor from within an actor
-#
+
 template hatch*(c: typed): ActorId =
   var actor = Actor(whelp c)
+  assert rcCount(actor) == 0
   hatchFromActor(actor)
-
 
 # Yield but go back to the work queue
 
 proc backoff*(actor: sink Actor): Actor {.cpsMagic.} =
   let pool = actor.pool
   withLock pool.workLock:
+    assert rcCount(actor) == 0
     pool.workQueue.addLast(actor)
-  actor.wasMoved()
 
 
