@@ -1,13 +1,13 @@
 
-import std/epoll
 import std/os
 import std/strformat
 import std/times
+import std/posix
 
 import cps
 import actors
-import times
 import isisolated
+import events
 
 
 type
@@ -83,18 +83,6 @@ proc sleepy() {.actor.} =
   os.sleep(10)
 
 
-proc fdwatcher() {.actor.} =
-    
-  var epfd: cint
-
-  while true:
-    # Wait for timers or I/O
-    var es: array[8, EpollEvent]
-    let n = epoll_wait(epfd, es[0].addr, es.len.cint, 1000)
-
-    var m = recv()
-    echo "Received ", $m
-
 
 proc main() {.actor.} =
 
@@ -130,9 +118,31 @@ proc main() {.actor.} =
   echo "main is done"
 
 
+proc main2() {.actor.} =
+
+  addFd(0)
+
+  while true:
+
+    let m = recv()
+
+    if m of MessageEvqEvent:
+      echo "got event"
+      var buf = newString(1024)
+      let r = posix.read(0, buf[0].addr, buf.len)
+      buf.setLen if r > 0: r else: 0
+      echo "> ", buf
+
+
 proc go() =
   var pool = newPool(4)
-  discard pool.hatch main()
+  let evqInfo = newEvq(pool)
+
+  pool.evqActorId = evqInfo.actorId
+  pool.evqFdWake = evqInfo.fdWake
+  
+  #discard pool.hatch main()
+  discard pool.hatch main2()
   pool.run()
 
 

@@ -5,6 +5,7 @@ import std/macros
 import std/locks
 import std/deques
 import std/tables
+import std/posix
 import std/atomics
 import std/times
 
@@ -18,9 +19,9 @@ type
   ActorId* = int
 
   Actor* = ref object of Continuation
-    id: ActorId
-    parentId: ActorId
-    pool: ptr Pool
+    id*: ActorId
+    parentId*: ActorId
+    pool*: ptr Pool
 
   Worker = object
     id: int
@@ -52,6 +53,10 @@ type
 
     # mailboxes for the actors
     mailhub: MailHub
+
+    # Event queue glue
+    evqActorId*: ActorId
+    evqFdWake*: cint
 
   Message* = ref object of Rootobj
     src*: ActorId
@@ -134,7 +139,7 @@ template withMailbox(mailhub: var Mailhub, id: ActorId, code: untyped) =
 
 # Send a message from srcId to dstId
 
-proc send(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
+proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
 
   msg.src = srcId
   #echo &"  send {srcId} -> {dstId}: {msg.repr}"
@@ -153,6 +158,12 @@ proc send(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
       assertIsolated(actor)
       pool.workQueue.addLast(actor)
       pool.workCond.signal()
+
+  # If the message is sent to the event queue, also write a byte to its
+  # wake fd
+  if dstId == pool.evqActorId:
+    let b: char = 'x'
+    discard posix.write(pool.evqFdWake, b.addr, 1)
 
 
 proc sendAux*(actor: Actor, dst: ActorId, msg: sink Message) {.cpsVoodoo.} =
