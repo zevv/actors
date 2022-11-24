@@ -12,57 +12,9 @@ import std/times
 import cps
 
 import bitline
+import types
+import mailbox
 import isisolated
-
-type
-
-  ActorId* = int
-
-  Actor* = ref object of Continuation
-    id*: ActorId
-    parentId*: ActorId
-    pool*: ptr Pool
-
-  Worker = object
-    id: int
-    thread: Thread[ptr Worker]
-    pool: ptr Pool
-
-  Mailbox[T] = ref object
-    lock: Lock
-    queue: Deque[T]
-
-  MailHub = object
-    lock: Lock
-    table: Table[ActorId, Mailbox[Message]]
-
-  Pool* = object
-
-    # Used to assign unique ActorIds
-    actorIdCounter: Atomic[int]
-
-    # All workers in the pool. No lock needed, only main thread touches this
-    workers: seq[ref Worker]
-
-    # This is where the continuations wait when not running
-    workLock: Lock
-    stop: bool
-    workCond: Cond
-    workQueue: Deque[Actor] # actor that needs to be run asap on any worker
-    idleQueue: Table[ActorId, Actor] # actor that is waiting for messages
-
-    # mailboxes for the actors
-    mailhub: MailHub
-
-    # Event queue glue. please ignore
-    evqActorId*: ActorId
-    evqFdWake*: cint
-
-  Message* = ref object of Rootobj
-    src*: ActorId
-
-  MessageDied* = ref object of Message
-    id*: ActorId
 
 
 # FFI for glib mallinfo()
@@ -105,36 +57,6 @@ proc pass*(cFrom, cTo: Actor): Actor =
 macro actor*(n: untyped): untyped =
   n.addPragma nnkExprColonExpr.newTree(ident"cps", ident"Actor")
   n     
-
-
-# Get number of mailboxes in a mailhub
-
-proc len(mailhub: var Mailhub): int =
-  withLock mailhub.lock:
-    result = mailhub.table.len
-
-# Create a new mailbox with the given id
-
-proc register(mailhub: var Mailhub, id: ActorId) =
-  var mailbox = new Mailbox[Message]
-  initLock mailbox.lock
-  withLock mailhub.lock:
-    mailhub.table[id] = mailbox
-
-# Unregister / destroy a mailbox from the hub
-
-proc unregister(mailhub: var Mailhub, id: ActorId) =
-  withLock mailhub.lock:
-    mailhub.table.del(id)
-
-# Do something with the given mailbox while holding the proper locks
-
-template withMailbox(mailhub: var Mailhub, id: ActorId, code: untyped) =
-  withLock mailhub.lock:
-    if id in mailhub.table:
-      var mailbox {.cursor,inject.} = mailhub.table[id]
-      withLock mailbox.lock:
-        code
 
 
 # Send a message from srcId to dstId

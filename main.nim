@@ -6,7 +6,7 @@ import std/posix
 
 import cps
 import actors
-import isisolated
+import types
 import events
 
 
