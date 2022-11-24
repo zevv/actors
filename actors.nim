@@ -51,13 +51,7 @@ macro actor*(n: untyped): untyped =
 
 proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
 
-  msg.src = srcId
-  echo &"  send {srcId} -> {dstId}: {msg.repr}"
-
-  pool.mailhub.withMailbox(dstId):
-    assertIsolated(msg)
-    mailbox.queue.addLast(msg)
-    bitline.logValue("actor." & $dstId & ".mailbox", mailbox.queue.len)
+  pool.mailhub.sendTo(srcId, dstId, msg)
 
   # If the target continuation is in the sleep queue, move it to the work queue
   withLock pool.workLock:

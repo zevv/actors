@@ -42,6 +42,16 @@ template withMailbox*(mailhub: var Mailhub, id: ActorId, code: untyped) =
       withLock mailbox.lock:
         code
 
+proc sendTo*(mailhub: var Mailhub, srcId, dstId: ActorID, msg: sink Message) =
+  msg.src = srcId
+  echo &"  send {srcId} -> {dstId}: {msg.repr}"
+  mailhub.withMailbox(dstId):
+    assertIsolated(msg)
+    mailbox.queue.addLast(msg)
+    bitline.logValue("actor." & $dstId & ".mailbox", mailbox.queue.len)
+
+  
+
 proc tryRecv*(mailhub: var Mailhub, id: ActorId): Message =
   var len: int
   mailhub.withMailbox(id):
