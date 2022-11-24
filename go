@@ -13,6 +13,9 @@ run()
 		asan)
 			nim c ${nimflags} --passC:-fsanitize=thread --passL:-fsanitize=thread main.nim && ./main
 			;;
+		asan)
+			nim c ${nimflags} --passC:-fsanitize=thread --passL:-fsanitize=thread main.nim && ./main
+			;;
 		valgrind)
 			nim c ${nimflags} main.nim  && valgrind --quiet --leak-check=full --show-leak-kinds=all ./main
 			;;

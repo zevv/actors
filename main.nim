@@ -6,6 +6,7 @@ import os
 import strformat
 import isisolated
 
+
 type
 
   MsgQuestion = ref object of Message
@@ -32,7 +33,6 @@ proc calculator() {.actor.} =
     if m of MsgQuestion:
       echo &"calculator got a question from {m.src}"
       let mq = m.MsgQuestion
-      os.sleep(1)
       send(m.src, MsgAnswer(c: mq.a + mq.b))
 
     if m of MsgStop:
@@ -47,7 +47,7 @@ proc bob(idCalculator: ActorId, count: int) {.actor.} =
 
   while i < count:
    
-    os.sleep(5)
+    os.sleep(1)
     send(idCalculator, MsgQuestion(a: 10, b: i))
 
     let m = recv()
@@ -74,7 +74,7 @@ proc claire(count: int) {.actor.} =
   while i < count:
     send(self, MsgHello())
     discard recv()
-    os.sleep(5)
+    os.sleep(1)
     i = i + 1
 
 
@@ -98,6 +98,7 @@ proc main() {.actor.} =
   while i < bobs:
     # TODO: If I discard this id, CPS does something different and I leak a ref
     let id = hatch bob(idCalculator, 20)
+    os.sleep(1)
     inc i
 
   # Wait for all the bobs to finish, then kill the calculator
@@ -124,4 +125,5 @@ proc go() =
 
 
 go()
+
 

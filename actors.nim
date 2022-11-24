@@ -59,6 +59,20 @@ type
   MessageDied* = ref object of Message
     id*: ActorId
 
+  mallinfo = object
+    arena: csize_t
+    ordblks: csize_t
+    smblks: csize_t
+    hblks: csize_t
+    hblkhd: csize_t
+    usmblks: csize_t
+    fsmblks: csize_t
+    uordblks: csize_t
+    fordblks: csize_t
+    keepcost: csize_t
+
+proc mallinfo2(): mallinfo {.importc: "mallinfo2".}
+
 
 # Misc helper procs
 
@@ -252,7 +266,10 @@ proc newPool*(nWorkers: int): ref Pool =
 proc run*(pool: ref Pool) =
 
   while pool.mailhub.len > 0:
-    os.sleep(50)
+    let mi = mallinfo2()
+    bitline.logValue("mem.alloc", mi.uordblks)
+    bitline.logValue("mem.arena", mi.arena)
+    os.sleep(10)
 
   echo "all mailboxes gone"
 
