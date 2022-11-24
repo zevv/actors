@@ -7,8 +7,11 @@ nimflags="-d:danger -d:usemalloc --gc:arc --debugger:native"
 run()
 {
 	case $1 in
-		perf)
+		run)
 			nim c ${nimflags} main.nim && ./main
+			;;
+		perf)
+			nim c ${nimflags} main.nim && perf record -g ./main
 			;;
 		asan)
 			nim c ${nimflags} --passC:-fsanitize=thread --passL:-fsanitize=thread main.nim && ./main

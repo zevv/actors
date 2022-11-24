@@ -47,7 +47,6 @@ proc bob(idCalculator: ActorId, count: int) {.actor.} =
 
   while i < count:
    
-    os.sleep(1)
     send(idCalculator, MsgQuestion(a: 10, b: i))
 
     let m = recv()
@@ -74,7 +73,6 @@ proc claire(count: int) {.actor.} =
   while i < count:
     send(self, MsgHello())
     discard recv()
-    os.sleep(1)
     i = i + 1
 
 
@@ -90,15 +88,14 @@ proc main() {.actor.} =
 
   let idCalculator = hatch calculator()
   
-  var bobs = 20
+  var bobs = 200
 
   # Hatch a number of bobs
 
   var i = 0
   while i < bobs:
     # TODO: If I discard this id, CPS does something different and I leak a ref
-    let id = hatch bob(idCalculator, 20)
-    os.sleep(1)
+    let id = hatch bob(idCalculator, 200)
     inc i
 
   # Wait for all the bobs to finish, then kill the calculator
