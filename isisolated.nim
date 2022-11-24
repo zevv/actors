@@ -49,7 +49,7 @@ proc isIsolated*[T: seq or array](vs: T): bool =
 proc isIsolated*[T: (object or tuple) and not ref](v: T): bool =
   for k, v in fieldPairs(v):
     let iso = isIsolated(v)
-    echo "- ", k, " ", iso
+    #echo "- ", k, " ", typeof(v), " ", iso
     if not iso:
       return false
   true
@@ -57,10 +57,8 @@ proc isIsolated*[T: (object or tuple) and not ref](v: T): bool =
 
 proc isIsolated*[T: ref](v: T): bool =
   let p = cast[pointer](v)
-  if p != nil:
+  if not p.isNil:
     let rc = head(p).rc shr rcShift
-    echo "- ", rc
-    # TODO: naive check
     if rc > 0:
       false
     else:
@@ -70,11 +68,14 @@ proc isIsolated*[T: ref](v: T): bool =
 
 proc assertIsolated*[T:ref](v: T) =
   when compileOption("assertions"):
-    # For now, only look at the top ref RC
-    let p = cast[pointer](v)
-    if p != nil:
-      let rc = head(p).rc shr rcShift
-      echo "== rc ", rc, " ", $v
-      assert rc == 0
+    when false:
+      {.cast(gcsafe).}: # whiner
+        assert isIsolated(v)
+    else:
+      let p = cast[pointer](v)
+      if p != nil:
+        let rc = head(p).rc shr rcShift
+        echo "== rc ", rc, " ", $v
+        assert rc == 0
   else:
     discard

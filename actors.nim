@@ -59,6 +59,10 @@ type
   MessageDied* = ref object of Message
     id*: ActorId
 
+
+# FFI for glib mallinfo()
+
+type 
   mallinfo = object
     arena: csize_t
     ordblks: csize_t

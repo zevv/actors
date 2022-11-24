@@ -83,7 +83,7 @@ proc sleepy() {.actor.} =
 proc main() {.actor.} =
 
   # TODO: if the result is discarted the actor will go on the CPS env, leaking a ref
-  let idClaire = hatch claire(100)
+  let idClaire = hatch claire(10)
 
   # Hatch a calculator
 
