@@ -1,9 +1,12 @@
 
+import std/epoll
+import std/os
+import std/strformat
+import std/times
+
 import cps
 import actors
 import times
-import os
-import strformat
 import isisolated
 
 
@@ -78,6 +81,19 @@ proc claire(count: int) {.actor.} =
 
 proc sleepy() {.actor.} = 
   os.sleep(10)
+
+
+proc fdwatcher() {.actor.} =
+    
+  var epfd: cint
+
+  while true:
+    # Wait for timers or I/O
+    var es: array[8, EpollEvent]
+    let n = epoll_wait(epfd, es[0].addr, es.len.cint, 1000)
+
+    var m = recv()
+    echo "Received ", $m
 
 
 proc main() {.actor.} =
