@@ -14,13 +14,19 @@ macro actor*(n: untyped): untyped =
   n     
 
 
+# Yield
+
 proc jield*(actor: sink Actor): Actor {.cpsMagic.} =
   actor.pool.jieldActor(actor)
 
 
+# Receive a message, nonblocking
+
 proc tryRecv*(actor: Actor): Message {.cpsVoodoo.} =
   result = actor.pool.mailhub.tryRecv(actor.id)
 
+
+# Receive a message, blocking
 
 template recv*(): Message =
   # TODO: why the need to set to nil?
@@ -31,6 +37,8 @@ template recv*(): Message =
       jield()
   msg
 
+
+# Send a message to another actor
 
 proc send*(actor: Actor, dst: ActorId, msg: sink Message) {.cpsVoodoo.} =
   actor.pool.send(actor.id, dst, msg)
