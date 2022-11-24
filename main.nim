@@ -122,7 +122,7 @@ proc ticker() {.actor.} =
 
 proc main2() {.actor.} =
 
-  let id = hatch ticker()
+  #let id = hatch ticker()
 
   addFd(0)
 
@@ -138,6 +138,7 @@ proc main2() {.actor.} =
         buf.setLen if r > 0: r else: 0
         echo "> ", buf
       else:
+        echo "done"
         delFd(0)
         break
 
@@ -151,7 +152,8 @@ proc go() =
   
   discard pool.hatch main()
   discard pool.hatch main2()
-  pool.run()
+
+  pool.join()
 
 
 go()

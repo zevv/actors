@@ -44,7 +44,7 @@ template withMailbox*(mailhub: var Mailhub, id: ActorId, code: untyped) =
 
 proc sendTo*(mailhub: var Mailhub, srcId, dstId: ActorID, msg: sink Message) =
   msg.src = srcId
-  echo &"  send {srcId} -> {dstId}: {msg.repr}"
+  #echo &"  send {srcId} -> {dstId}: {msg.repr}"
   mailhub.withMailbox(dstId):
     assertIsolated(msg)
     mailbox.queue.addLast(msg)

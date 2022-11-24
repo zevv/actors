@@ -51,6 +51,8 @@ macro actor*(n: untyped): untyped =
 
 proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
 
+  assertIsolated(msg)
+
   pool.mailhub.sendTo(srcId, dstId, msg)
 
   # If the target continuation is in the sleep queue, move it to the work queue
@@ -69,12 +71,9 @@ proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
     discard posix.write(pool.evqFdWake, b.addr, 1)
 
 
-proc sendAux*(actor: Actor, dst: ActorId, msg: sink Message) {.cpsVoodoo.} =
+proc send*(actor: Actor, dst: ActorId, msg: sink Message) {.cpsVoodoo.} =
   actor.pool.send(actor.id, dst, msg)
 
-template send*(dst: ActorId, msg: Message) =
-  assertIsolated(msg)
-  sendAux(dst, msg)
 
 proc jield*(actor: sink Actor): Actor {.cpsMagic.} =
   let pool = actor.pool
@@ -164,30 +163,6 @@ proc newPool*(nWorkers: int): ref Pool =
   pool
 
 
-# Wait until all actors in the pool have died and cleanup
-
-proc run*(pool: ref Pool) =
-
-  while pool.mailhub.len > 0:
-    let mi = mallinfo2()
-    bitline.logValue("stats.mailboxes", pool.mailhub.len)
-    bitline.logValue("stats.mem_alloc", mi.uordblks)
-    bitline.logValue("stats.mem_arena", mi.arena)
-    os.sleep(10)
-
-  echo "all mailboxes gone"
-
-  withLock pool.workLock:
-    pool.stop = true
-    pool.workCond.broadcast()
-
-  for worker in pool.workers:
-    worker.thread.joinThread()
-    assertIsolated(worker)
-
-  echo "all workers stopped"
-
-
 proc hatchAux(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId): ActorId =
 
   assert not isNil(actor)
@@ -235,4 +210,29 @@ template hatch*(c: typed): ActorId =
   # TODO: workaround for CPS problem: first assign to local var to prevent CPS
   # from moving the actor itself into the environment
   hatchFromActor(actor)
+
+
+# Wait until all actors in the pool have died and cleanup
+
+proc join*(pool: ref Pool) =
+
+  while pool.mailhub.len > 0:
+    let mi = mallinfo2()
+    bitline.logValue("stats.mailboxes", pool.mailhub.len)
+    bitline.logValue("stats.mem_alloc", mi.uordblks)
+    bitline.logValue("stats.mem_arena", mi.arena)
+    os.sleep(10)
+
+  echo "all mailboxes gone"
+
+  withLock pool.workLock:
+    pool.stop = true
+    pool.workCond.broadcast()
+
+  for worker in pool.workers:
+    worker.thread.joinThread()
+    assertIsolated(worker)
+
+  echo "all workers stopped"
+
 
