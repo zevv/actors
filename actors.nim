@@ -327,8 +327,7 @@ template hatch*(c: typed): ActorId =
   assertIsolated(actor)
   # TODO: workaround for CPS problem: first assign to local var to prevent CPS
   # from moving the actor itself into the environment
-  let id = hatchFromActor(actor)
-  id
+  hatchFromActor(actor)
 
 # Yield but go back to the work queue
 

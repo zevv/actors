@@ -86,14 +86,14 @@ proc main() {.actor.} =
   
   claire(10)
 
-  discard hatch claire(10)
+  let i1 = hatch claire(10)
   inc kids
 
   let idCalculator = hatch calculator()
   
   var i = 0
   while i < 20:
-    discard hatch bob(idCalculator, 100)
+    let i2 = hatch bob(idCalculator, 100)
     inc kids
     inc i
 
