@@ -67,15 +67,10 @@ proc isIsolated*[T: ref](v: T): bool =
     true
 
 proc assertIsolated*[T:ref](v: T) =
-  when compileOption("assertions"):
-    when false:
-      {.cast(gcsafe).}: # whiner
-        assert isIsolated(v)
-    else:
-      let p = cast[pointer](v)
-      if p != nil:
-        let rc = head(p).rc shr rcShift
-        echo "== rc ", rc, " ", $v
-        assert rc == 0
-  else:
-    discard
+  let p = cast[pointer](v)
+  if p != nil:
+    let rc = head(p).rc shr rcShift
+    assert rc == 0
+  when false:
+    {.cast(gcsafe).}: # whiner
+      doassert isIsolated(v)
