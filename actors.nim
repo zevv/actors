@@ -37,18 +37,6 @@ proc mallinfo2(): mallinfo {.importc: "mallinfo2".}
 
 # Misc helper procs
 
-proc `$`*(pool: ref Pool): string =
-  return "#POOL<>"
-
-proc `$`*(worker: ref Worker | ptr Worker): string =
-  return "#WORKER<" & $worker.id & ">"
-
-proc `$`*(a: Actor): string =
-  return "#ACT<" & $a.parent_id & "." & $a.id & ">"
-
-proc `$`*(m: Message): string =
-  return "#MSG<" & $m.src & ">"
-
 proc pass*(cFrom, cTo: Actor): Actor =
   cTo.pool = cFrom.pool
   cTo.id = cFrom.id
@@ -64,7 +52,7 @@ macro actor*(n: untyped): untyped =
 proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
 
   msg.src = srcId
-  #echo &"  send {srcId} -> {dstId}: {msg.repr}"
+  echo &"  send {srcId} -> {dstId}: {msg.repr}"
 
   pool.mailhub.withMailbox(dstId):
     assertIsolated(msg)
@@ -95,33 +83,26 @@ template send*(dst: ActorId, msg: Message) =
   assertIsolated(msg)
   sendAux(dst, msg)
 
-
-proc recvYield*(actor: sink Actor): Actor {.cpsMagic.} =
-  # If there are no messages waiting in the mailbox, move the continuation to
-  # the idle queue. Otherwise, return the current continuation so it can
-  # receive and handle the mail without yielding
+proc jield*(actor: sink Actor): Actor {.cpsMagic.} =
   let pool = actor.pool
-  pool.mailhub.withMailbox(actor.id):
-    if mailbox.queue.len == 0:
-      withLock pool.workLock:
-        pool.idleQueue[actor.id] = actor
-        #actor = nil
-    else:
-      result = actor
+  withLock pool.workLock:
+    #assertIsolated(actor) # TODO
+    pool.idleQueue[actor.id] = actor
+    actor = nil
 
 
-proc recvGetMessage*(actor: Actor): Message {.cpsVoodoo.} =
-  let pool = actor.pool
-  pool.mailhub.withMailbox(actor.id):
-    result = mailbox.queue.popFirst()
-    assertIsolated(result)
-    bitline.logValue("actor." & $actor.id & ".mailbox", mailbox.queue.len)
+proc tryRecv*(actor: Actor): Message {.cpsVoodoo.} =
+  result = actor.pool.mailhub.tryRecv(actor.id)
 
 
 template recv*(): Message =
-  recvYield()
-  recvGetMessage()
-
+  # TODO: why the need to set to nil?
+  var msg: Message = nil
+  while msg.isNil:
+    msg = tryRecv()
+    if msg.isNil:
+      jield()
+  msg
 
 
 proc waitForWork(pool: ptr Pool): Actor =
@@ -261,13 +242,4 @@ template hatch*(c: typed): ActorId =
   # TODO: workaround for CPS problem: first assign to local var to prevent CPS
   # from moving the actor itself into the environment
   hatchFromActor(actor)
-
-# Yield but go back to the work queue
-
-proc backoff*(actor: sink Actor): Actor {.cpsMagic.} =
-  let pool = actor.pool
-  withLock pool.workLock:
-    assertIsolated(actor)
-    pool.workQueue.addLast(actor)
-
 

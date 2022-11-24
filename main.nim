@@ -71,8 +71,9 @@ proc spin(t: float) =
 proc claire(count: int) {.actor.} =
 
   var i = 0
+  let me = self()
   while i < count:
-    send(self(), MsgHello())
+    send(me, MsgHello())
     discard recv()
     i = i + 1
 
@@ -82,7 +83,7 @@ proc main() {.actor.} =
 
   var kids = 0
   
-  claire(10)
+  #claire(10)
 
   let i1 = hatch claire(10)
   inc kids
@@ -148,7 +149,7 @@ proc go() =
   pool.evqActorId = evqInfo.actorId
   pool.evqFdWake = evqInfo.fdWake
   
-  #discard pool.hatch main()
+  discard pool.hatch main()
   discard pool.hatch main2()
   pool.run()
 

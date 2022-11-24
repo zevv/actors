@@ -109,8 +109,7 @@ proc evqActor(fdWake: cint) {.actor.} =
         if io.kind == iokTimer:
           var data: uint64
           discard posix.read(fd, data.addr, sizeof(data))
-        let m = MessageEvqEvent()
-        send(io.actorId, m)
+        send(io.actorId, MessageEvqEvent())
 
       inc i
 

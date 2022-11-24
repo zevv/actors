@@ -70,7 +70,8 @@ proc assertIsolated*[T:ref](v: T) =
   let p = cast[pointer](v)
   if p != nil:
     let rc = head(p).rc shr rcShift
-    assert rc == 0
+    if rc != 0:
+      raise newException(NotIsolatedError, $v)
   when false:
     {.cast(gcsafe).}: # whiner
       doassert isIsolated(v)

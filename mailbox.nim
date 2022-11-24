@@ -10,6 +10,8 @@ import std/atomics
 import std/times
 
 import types
+import isisolated
+import bitline
 
 # Get number of mailboxes in a mailhub
 
@@ -39,4 +41,13 @@ template withMailbox*(mailhub: var Mailhub, id: ActorId, code: untyped) =
       var mailbox {.cursor,inject.} = mailhub.table[id]
       withLock mailbox.lock:
         code
+
+proc tryRecv*(mailhub: var Mailhub, id: ActorId): Message =
+  var len: int
+  mailhub.withMailbox(id):
+    len = mailbox.queue.len
+    if len > 0:
+      result = mailbox.queue.popFirst()
+      assertIsolated(result)
+      bitline.logValue("actor." & $id & ".mailbox", len)
 
