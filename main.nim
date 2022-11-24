@@ -89,12 +89,12 @@ proc main() {.actor.} =
 
   let idCalculator = hatch calculator()
   
-  var bobs = 20
+  var kids = 21
 
   # Hatch a number of bobs
 
   var i = 0
-  while i < bobs:
+  while i < 20:
     # TODO: if the result is discarted the actor will go on the CPS env, leaking a ref
     let id = hatch bob(idCalculator, 20)
     inc i
@@ -107,9 +107,9 @@ proc main() {.actor.} =
 
     if m of MessageDied:
       let md = m.MessageDied
-      bobs.dec
-      echo &"actor {md.id} died, {bobs} bobs left!"
-      if bobs == 0:
+      kids.dec
+      echo &"actor {md.id} died, {kids} kids left!"
+      if kids == 0:
         send(idCalculator, MsgStop())
         break
 

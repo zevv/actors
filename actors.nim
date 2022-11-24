@@ -137,7 +137,7 @@ template withMailbox(mailhub: var Mailhub, id: ActorId, code: untyped) =
 proc send(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
 
   msg.src = srcId
-  #echo &"  send {srcId} -> {dstId}: {msg.repr}"
+  echo &"  send {srcId} -> {dstId}: {msg.repr}"
 
   pool.mailhub.withMailbox(dstId):
     assertIsolated(msg)
@@ -262,6 +262,7 @@ proc newPool*(nWorkers: int): ref Pool =
 proc run*(pool: ref Pool) =
 
   while pool.mailhub.len > 0:
+    echo pool.mailhub.len
     let mi = mallinfo2()
     bitline.logValue("mem.alloc", mi.uordblks)
     bitline.logValue("mem.arena", mi.arena)
