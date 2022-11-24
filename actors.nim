@@ -262,7 +262,7 @@ proc run*(pool: ref Pool) =
 
   for worker in pool.workers:
     worker.thread.joinThread()
-    discard rcCount(worker)
+    assert rcCount(worker) == 0
 
   echo "all workers stopped"
 

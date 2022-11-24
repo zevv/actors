@@ -4,20 +4,17 @@ import times
 
 const optBitline {.strdefine.} = ""
 
-var fLog: File
-
-
-proc log(line: string) =
-  fLog.write $epochTime() & " " & line & "\n"
-  fLog.flushFile()
-
-#proc log(tag, msg: string) =
-#  log(tag & " " & msg)
-
 
 when optBitline != "":
 
-  fLog = open(optBitline, fmWrite)
+  var fLog = open(optBitline, fmWrite)
+
+  proc log(line: string) =
+    fLog.write $epochTime() & " " & line & "\n"
+    fLog.flushFile()
+
+  proc log(tag, msg: string) =
+    log(tag & " " & msg)
 
   proc logStart*(tag: string) =
     log("+", tag)

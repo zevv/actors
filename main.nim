@@ -84,22 +84,21 @@ proc sleepy() {.actor.} =
 
 proc main() {.actor.} =
 
-#  discard hatch claire(100)
+  discard hatch claire(100)
 
   # Hatch a calculator
 
   let idCalculator = hatch calculator()
   
-  var bobs = 0
+  var bobs = 20
 
   # Hatch a number of bobs
 
   var i = 0
-  while i < 2:
-    inc bobs
-    inc i
+  while i < bobs:
     # TODO: If I discard this id, CPS does something different and I leak a ref
-    let id = hatch bob(idCalculator, 2)
+    let id = hatch bob(idCalculator, 20)
+    inc i
 
   # Wait for all the bobs to finish, then kill the calculator
 
@@ -122,7 +121,6 @@ proc go() =
   var pool = newPool(4)
   discard pool.hatch main()
   pool.run()
-  echo rcCount(pool)
 
 
 go()
