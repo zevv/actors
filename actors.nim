@@ -65,7 +65,6 @@ proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
       #echo "wake ", dstId
       var actor = pool.idleQueue[dstId]
       pool.idleQueue.del(dstId)
-      assertIsolated(actor)
       pool.workQueue.addLast(actor)
       pool.workCond.signal()
 
@@ -145,7 +144,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       #echo &"actor {actor.id} has died, parent was {actor.parent_id}"
       pool.mailhub.unregister(actor.id)
       let msg = MessageDied(id: actor.id)
-      pool.send(0, actor.parent_id, msg)
+      pool.send(0.ActorId, actor.parent_id, msg)
       
 
 
@@ -201,7 +200,7 @@ proc hatchAux(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId):
   assertIsolated(actor)
 
   pool.actorIdCounter += 1
-  let myId = pool.actorIdCounter.load()
+  let myId = pool.actorIdCounter.load().ActorID
 
   actor.pool = pool[].addr
   actor.id = myId

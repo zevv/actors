@@ -16,7 +16,7 @@ import isisolated
 
 type
 
-  ActorId* = int
+  ActorId* = distinct int
 
   Actor* = ref object of Continuation
     id*: ActorId
@@ -66,6 +66,11 @@ type
 
 
 # Misc helper procs
+
+proc `==`*(x, y: ActorId): bool {.borrow.}
+
+proc `$`*(id: ActorID): string =
+  return "#AID<" & $(id.int) & ">"
 
 proc `$`*(pool: ref Pool): string =
   return "#POOL<>"
