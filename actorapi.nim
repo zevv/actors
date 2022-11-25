@@ -56,3 +56,10 @@ template hatch*(c: typed): ActorId =
   let actor = Actor(whelp c)
   hatchFromActor(actor)
 
+
+# Returns the ActorID of the calling actor
+
+proc self*(actor: Actor): ActorId {.cpsVoodoo.} =
+  actor.id
+
+
