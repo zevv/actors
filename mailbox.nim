@@ -30,7 +30,10 @@ type
     id*: ActorId
 
 proc `$`*(m: Message): string =
-  return "#MSG<" & $m.src & ">"
+  if not m.isNil:
+    "#MSG<" & $(m.src.int) & ">"
+  else:
+    "nil"
 
 
 # Get number of mailboxes in a mailhub
@@ -77,14 +80,46 @@ proc sendTo*(mailhub: var Mailhub, srcId, dstId: ActorID, msg: sink Message) =
     bitline.logValue("actor." & $dstId & ".mailbox", mailbox.queue.len)
 
 
-# Check for mail, returns nil if nothing found
+# Check for mail, returns nil if nothing found. If the first item in the
+# dequeue matches the filter, pop it. If it is not the first item, nil it
+# and leave a hole.
+
+template tryRecvFilterIt*(mailhub: var Mailhub, id: ActorId, filter: untyped): Message =
+  var msg: Message
+  withMailbox(mailhub, id):
+    var i = 0
+    for it {.inject.} in mailbox.queue.mitems:
+      if not it.isNil and filter:
+        msg = it
+        if i == 0:
+          mailbox.queue.popFirst()
+        else:
+          it = nil
+        break
+      inc i
+  msg
 
 proc tryRecv*(mailhub: var Mailhub, id: ActorId): Message =
-  var len: int
+  tryRecvFilterIt mailhub, id:
+    true
+
+proc tryRecv*(mailhub: var Mailhub, id: ActorId, idSrc: ActorId): Message =
+  tryRecvFilterIt mailhub, id:
+    it.src == idSrc
+
+proc tryRecv*(mailhub: var Mailhub, id: ActorId, T: typedesc): Message =
+  tryRecvFilterIt mailhub, id:
+    it of T
+
+proc tryRecv*(mailhub: var Mailhub, id: ActorId, idSrc: ActorId, T: typedesc): Message =
+  tryRecvFilterIt mailhub, id:
+    it.src == idSrc and it of T
+
+
+proc dump*(mailhub: var Mailhub, id: ActorId) =
   mailhub.withMailbox(id):
-    len = mailbox.queue.len
-    if len > 0:
-      result = mailbox.queue.popFirst()
-      assertIsolated(result)
-      bitline.logValue("actor." & $id & ".mailbox", len)
+    var i = 0
+    for m in mailbox.queue.items:
+      echo i, ": ", m
+      inc i
 

@@ -20,22 +20,31 @@ proc jield*(actor: sink Actor): Actor {.cpsMagic.} =
   actor.pool.jieldActor(actor)
 
 
-# Receive a message, nonblocking
+# Receive a message, non-blocking
 
 proc tryRecv*(actor: Actor): Message {.cpsVoodoo.} =
   result = actor.pool.mailhub.tryRecv(actor.id)
 
 
-# Receive a message, blocking
+# Receive a message, yield if necessary
 
-template recv*(): Message =
-  # TODO: why the need to set to nil?
-  var msg: Message = nil
-  while msg.isNil:
-    msg = tryRecv()
-    if msg.isNil:
-      jield()
-  msg
+when false:
+
+  # This should work but breaks assertIsolated() somewhere
+  proc recv*(): Message {.actor.} =
+    while result.isNil:
+      result = tryRecv()
+      if result.isNil:
+        jield()
+else:
+
+  template recv*(): Message =
+    var msg: Message
+    while msg.isNil:
+      msg = tryRecv()
+      if msg.isNil:
+        jield()
+    msg
 
 
 # Send a message to another actor

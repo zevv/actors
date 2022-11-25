@@ -59,7 +59,7 @@ proc `$`*(pool: ref Pool): string =
   return "#POOL<>"
 
 proc `$`*(a: Actor): string =
-  return "#ACT<" & $a.parent_id & "." & $a.id & ">"
+  return "#ACT<" & $(a.parent_id.int) & "." & $(a.id.int) & ">"
 
 proc `$`*(worker: ref Worker | ptr Worker): string =
   return "#WORKER<" & $worker.id & ">"

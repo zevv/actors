@@ -2,6 +2,8 @@
 import std/os
 import std/strformat
 import std/times
+import std/tables
+import std/deques
 import std/posix
 
 import cps
@@ -147,16 +149,15 @@ proc main2() {.actor.} =
 
 proc go() =
   var pool = newPool(4)
-  let evqInfo = newEvq(pool)
 
-  pool.evqActorId = evqInfo.actorId
-  pool.evqFdWake = evqInfo.fdWake
+  #let evqInfo = newEvq(pool)
+  #pool.evqActorId = evqInfo.actorId
+  #pool.evqFdWake = evqInfo.fdWake
   
   discard pool.hatch main()
-  discard pool.hatch main2()
+  #discard pool.hatch main2()
 
   pool.join()
-
 
 go()
 
