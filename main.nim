@@ -67,11 +67,9 @@ proc spin(t: float) =
 
 proc claire(count: int) {.actor.} =
 
-  let self = getMyId()
-
   var i = 0
   while i < count:
-    send(self, MsgHello())
+    send(getMyId(), MsgHello())
     discard recv()
     i = i + 1
 
