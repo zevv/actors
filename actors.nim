@@ -15,21 +15,12 @@ import bitline
 import actorid
 import mailbox
 import isisolated
+import mallinfo
 
 
 # FFI for glib mallinfo()
 
 type 
-
-  Actor* = ref object of Continuation
-    id*: ActorId
-    parentId*: ActorId
-    pool*: ptr Pool
-
-  Worker = object
-    id: int
-    thread: Thread[ptr Worker]
-    pool: ptr Pool
 
   Pool* = object
 
@@ -53,30 +44,25 @@ type
     evqActorId*: ActorId
     evqFdWake*: cint
 
-  mallinfo = object
-    arena: csize_t
-    ordblks: csize_t
-    smblks: csize_t
-    hblks: csize_t
-    hblkhd: csize_t
-    usmblks: csize_t
-    fsmblks: csize_t
-    uordblks: csize_t
-    fordblks: csize_t
-    keepcost: csize_t
+  Actor* = ref object of Continuation
+    id*: ActorId
+    parentId*: ActorId
+    pool*: ptr Pool
+
+  Worker = object
+    id: int
+    thread: Thread[ptr Worker]
+    pool: ptr Pool
 
 
 proc `$`*(pool: ref Pool): string =
   return "#POOL<>"
 
-proc `$`*(worker: ref Worker | ptr Worker): string =
-  return "#WORKER<" & $worker.id & ">"
-
 proc `$`*(a: Actor): string =
   return "#ACT<" & $a.parent_id & "." & $a.id & ">"
 
-
-proc mallinfo2(): mallinfo {.importc: "mallinfo2".}
+proc `$`*(worker: ref Worker | ptr Worker): string =
+  return "#WORKER<" & $worker.id & ">"
 
 
 # Misc helper procs
@@ -85,15 +71,6 @@ proc pass*(cFrom, cTo: Actor): Actor =
   cTo.pool = cFrom.pool
   cTo.id = cFrom.id
   cTo
-
-
-proc waitForWork(pool: ptr Pool): Actor =
-  withLock pool.workLock:
-    while pool.workQueue.len == 0 and not pool.stop:
-      pool.workCond.wait(pool.workLock)
-    if not pool.stop:
-      result = pool.workQueue.popFirst()
-      assertIsolated(result)
 
 
 # Send a message from srcId to dstId
@@ -119,11 +96,22 @@ proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
     discard posix.write(pool.evqFdWake, b.addr, 1)
 
 
+# Move actor to the idle queue
+
 proc jieldActor*(pool: ptr Pool, actor: sink Actor) =
   withLock pool.workLock:
     #assertIsolated(actor) # TODO
     pool.idleQueue[actor.id] = actor
     actor = nil
+
+
+proc waitForWork(pool: ptr Pool): Actor =
+  withLock pool.workLock:
+    while pool.workQueue.len == 0 and not pool.stop:
+      pool.workCond.wait(pool.workLock)
+    if not pool.stop:
+      result = pool.workQueue.popFirst()
+      assertIsolated(result)
 
 
 proc workerThread(worker: ptr Worker) {.thread.} =
@@ -160,10 +148,6 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       pool.send(0.ActorId, actor.parent_id, msg)
       
 
-proc self*(c: Actor): ActorId {.cpsVoodoo.} =
-  c.id
-
-
 proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId): ActorId =
 
   assert not isNil(actor)
@@ -172,6 +156,7 @@ proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId)
   pool.actorIdCounter += 1
   let id = pool.actorIdCounter.load().ActorID
 
+  # Initialize actor
   actor.pool = pool[].addr
   actor.id = id
   actor.parentId = parentId
@@ -193,7 +178,6 @@ proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId)
 template hatch*(pool: ref Pool, c: typed): ActorId =
   var actor = Actor(whelp c)
   hatchAux(pool, actor)
-
 
 
 # Create pool with actor queue and worker threads

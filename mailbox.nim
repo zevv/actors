@@ -39,6 +39,7 @@ proc len*(mailhub: var Mailhub): int =
   withLock mailhub.lock:
     result = mailhub.table.len
 
+
 # Create a new mailbox with the given id
 
 proc register*(mailhub: var Mailhub, id: ActorId) =
@@ -47,11 +48,13 @@ proc register*(mailhub: var Mailhub, id: ActorId) =
   withLock mailhub.lock:
     mailhub.table[id] = mailbox
 
+
 # Unregister / destroy a mailbox from the hub
 
 proc unregister*(mailhub: var Mailhub, id: ActorId) =
   withLock mailhub.lock:
     mailhub.table.del(id)
+
 
 # Do something with the given mailbox while holding the proper locks
 
@@ -62,6 +65,9 @@ template withMailbox(mailhub: var Mailhub, id: ActorId, code: untyped) =
       withLock mailbox.lock:
         code
 
+
+# Deliver message in the given mailbox
+
 proc sendTo*(mailhub: var Mailhub, srcId, dstId: ActorID, msg: sink Message) =
   msg.src = srcId
   #echo &"  send {srcId} -> {dstId}: {msg.repr}"
@@ -69,6 +75,9 @@ proc sendTo*(mailhub: var Mailhub, srcId, dstId: ActorID, msg: sink Message) =
     assertIsolated(msg)
     mailbox.queue.addLast(msg)
     bitline.logValue("actor." & $dstId & ".mailbox", mailbox.queue.len)
+
+
+# Check for mail, returns nil if nothing found
 
 proc tryRecv*(mailhub: var Mailhub, id: ActorId): Message =
   var len: int
