@@ -5,11 +5,12 @@ import std/times
 import std/posix
 
 import cps
-import actors
-import events
-import actorid
-import actorapi
-import mailbox
+
+import src/actors
+import src/events
+import src/actorid
+import src/actorapi
+import src/mailbox
 
 
 type
