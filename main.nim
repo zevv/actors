@@ -130,7 +130,7 @@ proc readFd(fd: cint): string {.actor.} =
   buf
 
 
-proc main2() {.actor.} =
+proc main2(aidEvq: ActorId) {.actor.} =
 
   #let id = hatch ticker()
 
@@ -139,6 +139,9 @@ proc main2() {.actor.} =
     if l.len == 0:
       break
     echo "=== ", l
+
+  echo "main2 done"
+  kill(aidEvq)
 
 
 proc go() =
@@ -149,7 +152,7 @@ proc go() =
   pool.evqFdWake = evqInfo.fdWake
   
   discard pool.hatch main()
-  discard pool.hatch main2()
+  discard pool.hatch main2(evqInfo.actorId)
 
   pool.join()
 

@@ -24,14 +24,24 @@ proc jield*(actor: sink Actor): Actor {.cpsMagic.} =
 
 proc tryRecv*(actor: Actor): Message {.cpsVoodoo.} =
   result = actor.pool.mailhub.tryRecv(actor.id)
+  if not result.isNil and result of MessageKill:
+    actor.killed = true
+    result = nil
 
 proc tryRecv*(actor: Actor, srcId: ActorId): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg.src == srcId
   result = actor.pool.mailhub.tryRecv(actor.id, filter)
+  echo result
+  if not result.isNil and result of MessageKill:
+    actor.killed = true
+    result = nil
 
 proc tryRecv*(actor: Actor, T: typedesc): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg of T
   result = actor.pool.mailhub.tryRecv(actor.id, filter)
+  if not result.isNil and result of MessageKill:
+    actor.killed = true
+    result = nil
 
 # Receive a message, blocking
 
@@ -56,6 +66,10 @@ template recv*(T: typedesc): auto =
 proc send*(actor: Actor, dst: ActorId, msg: sink Message) {.cpsVoodoo.} =
   actor.pool.send(actor.id, dst, msg)
 
+# Send a kill message to another actor
+
+proc kill*(actor: Actor, dst: ActorId) {.cpsVoodoo.} =
+  actor.pool.send(actor.id, dst, MessageKill())
 
 # Hatch an actor from within an actor
 

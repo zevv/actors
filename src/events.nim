@@ -51,7 +51,7 @@ type
 
 proc handleMessage(evq: Evq) {.actor.} =
   var m = recv()
-    
+
   if m of MessageEvqAddTimer:
     let interval = m.MessageEvqAddTimer.interval
     let fd = timerfd_create(CLOCK_MONOTONIC, O_CLOEXEC or O_NONBLOCK).cint
@@ -77,6 +77,12 @@ proc handleMessage(evq: Evq) {.actor.} =
     let fd = m.MessageEvqDelFd.fd
     discard epoll_ctl(evq.epfd, EPOLL_CTL_DEL, fd.cint, nil)
     evq.ios.del(fd)
+
+  elif m of MessageKill:
+    echo "boom"
+
+  else:
+    echo "unhandled message"
 
 
 # This actor is special, as it has to wait on both the epoll and the regular

@@ -48,6 +48,7 @@ type
     id*: ActorId
     parentId*: ActorId
     pool*: ptr Pool
+    killed*: bool
 
   Worker = object
     id: int
@@ -55,7 +56,9 @@ type
     pool: ptr Pool
 
   ExitReason = enum
-    erFinished
+    erFinished, erKilled
+  
+  MessageKill* = ref object of Message
 
   MessageExit* = ref object of Message
     id*: ActorId
@@ -103,9 +106,22 @@ proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
     discard posix.write(pool.evqFdWake, b.addr, 1)
 
 
+proc del(actor: sink Actor, reason: ExitReason) =
+  #assertIsolated(actor)  # TODO: cps refs child
+  let pool = actor.pool
+  echo &"actor {actor.id} exit, reason: {reason}, parent was {actor.parent_id}"
+  pool.mailhub.unregister(actor.id)
+  let msg = MessageExit(id: actor.id, reason: erFinished)
+  pool.send(0.ActorId, actor.parent_id, msg)
+
+
 # Move actor to the idle queue
 
 proc jieldActor*(pool: ptr Pool, actor: sink Actor) =
+  if (not actor.isNil and actor.killed):
+    actor.del(erKilled)
+    return
+
   withLock pool.workLock:
     #assertIsolated(actor) # TODO
     pool.idleQueue[actor.id] = actor
@@ -119,6 +135,7 @@ proc waitForWork(pool: ptr Pool): Actor =
     if not pool.stop:
       result = pool.workQueue.popFirst()
       #assertIsolated(result)  # TODO: cps refs child
+
 
 
 proc workerThread(worker: ptr Worker) {.thread.} =
@@ -148,11 +165,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     # Cleanup if continuation has finixhed
 
     if actor.finished:
-      #assertIsolated(actor)  # TODO: cps refs child
-      #echo &"actor {actor.id} has died, parent was {actor.parent_id}"
-      pool.mailhub.unregister(actor.id)
-      let msg = MessageExit(id: actor.id, reason: erFinished)
-      pool.send(0.ActorId, actor.parent_id, msg)
+      actor.del(erFinished)
       
 
 proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId): ActorId =
