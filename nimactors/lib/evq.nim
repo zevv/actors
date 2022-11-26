@@ -5,10 +5,7 @@ import std/tables
 
 import cps
 
-import actorid
-import actorapi
-import actors
-import mailbox
+import ../../nimactors
 
 
 proc timerfd_create(clock_id: ClockId, flags: cint): cint

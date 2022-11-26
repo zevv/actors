@@ -5,13 +5,9 @@ import std/strutils
 import std/times
 import std/posix
 
-import cps
 
-import src/actors
-import src/events
-import src/actorid
-import src/actorapi
-import src/mailbox
+import nimactors
+import nimactors/lib/evq
 
 
 type
