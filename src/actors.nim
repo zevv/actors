@@ -68,6 +68,13 @@ type
     ex*: ref Exception
 
 
+# Forward declerations
+
+proc kill*(pool: ptr Pool, id: ActorId)
+
+
+# Misc helpers
+
 proc `$`*(pool: ref Pool): string =
   return "#POOL<>"
 
@@ -112,12 +119,15 @@ proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
 # Signal termination of an actor; inform the parent and kill any linked
 # actors.
 
-proc kill*(pool: ptr Pool, id: ActorId)
-
 proc exit(actor: sink Actor, reason: ExitReason, ex: ref Exception = nil) =
   #assertIsolated(actor)  # TODO: cps refs child
+
+  echo &"{actor.id} exit, reason: {reason}"
+  if not ex.isNil:
+    echo "Exception: ", ex.msg
+    echo ex.getStackTrace()
+
   let pool = actor.pool
-  echo &"actor {actor.id} exit, reason: {reason}, parent was {actor.parent_id}"
   pool.mailhub.unregister(actor.id)
   let msg = MessageExit(id: actor.id, reason: reason, ex: ex)
   pool.send(0.ActorId, actor.parent_id, msg)
@@ -137,19 +147,17 @@ proc kill*(pool: ptr Pool, id: ActorId) =
   pool.send(0.ActorId, id, MessageKill())
 
 
-
 # Move actor to the idle queue
 
 proc toIdleQueue*(pool: ptr Pool, actor: sink Actor) =
+  #assertIsolated(actor) # TODO
   var killed = false
   withLock pool.workLock:
-    #assertIsolated(actor) # TODO
     if actor.id in pool.killReq:
       pool.killReq.del(actor.id)
       killed = true
     else:
       pool.idleQueue[actor.id] = actor
-      actor = nil
 
   if killed:
     exit(actor, erKilled)
@@ -163,18 +171,9 @@ proc waitForWork(pool: ptr Pool): Actor =
         pool.workCond.wait(pool.workLock)
 
       if pool.stop:
-        break
-
+        return nil
       else:
-        let actor = pool.workQueue.popFirst()
-        #echo "Found work ", actor
-        #assertIsolated(actor)  # TODO: cps refs child
-        if actor.id in pool.killReq:
-          #echo "not trampolining because killed ", actor
-          exit(actor, erKilled)
-        else:
-          return actor
-
+        return pool.workQueue.popFirst()
 
 
 proc workerThread(worker: ptr Worker) {.thread.} =
