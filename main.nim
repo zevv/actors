@@ -124,13 +124,13 @@ proc ticker() {.actor.} =
     os.sleep(100)
 
 
-proc readFd(fd: cint): string {.actor.} =
-  addFd(fd)
+proc readFd(aidEvq: ActorID, fd: cint): string {.actor.} =
+  addFd(aidEvq, fd)
   discard recv(MessageEvqEvent)
   var buf = newString(1024)
   let r = posix.read(0, buf[0].addr, buf.len)
   buf.setLen if r > 0: r else: 0
-  delFd(fd)
+  delFd(aidEvq, fd)
   buf
 
 
@@ -139,7 +139,7 @@ proc main2(aidEvq: ActorId) {.actor.} =
   #let id = hatch ticker()
 
   while true:
-    let l = readFd(0)
+    let l = readFd(aidEvq, 0)
     if l.len == 0:
       break
     echo "=== ", l
@@ -154,9 +154,6 @@ proc go() =
   var pool = newPool(2)
   let evqInfo = newEvq(pool)
 
-  pool.evqActorId = evqInfo.actorId
-  pool.evqFdWake = evqInfo.fdWake
-  
   discard pool.hatch main()
   discard pool.hatch main2(evqInfo.actorId)
 

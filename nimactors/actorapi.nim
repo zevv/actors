@@ -97,3 +97,8 @@ template hatchLinked*(c: typed): ActorId =
 proc self*(actor: Actor): ActorId {.cpsVoodoo.} =
   actor.id
 
+# Register a signaling file descriptor for this actors mailbox
+
+proc setMailboxFd*(actor: Actor, fd: cint) {.cpsVoodoo.} =
+  actor.pool.mailhub.setSignalFd(actor.id, fd)
+

@@ -42,10 +42,6 @@ type
     # mailboxes for the actors
     mailhub*: MailHub
 
-    # Event queue glue. please ignore
-    evqActorId*: ActorId
-    evqFdWake*: cint
-
   Actor* = ref object of Continuation
     id*: ActorId
     parentId*: ActorId
@@ -109,11 +105,6 @@ proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
       pool.idleQueue.del(dstId)
       pool.workQueue.addLast(actor)
       pool.workCond.signal()
-
-  # If the message is sent to the event queue, also write a byte to its wake fd
-  if dstId == pool.evqActorId:
-    let b: char = 'x'
-    discard posix.write(pool.evqFdWake, b.addr, 1)
 
 
 # Signal termination of an actor; inform the parent and kill any linked

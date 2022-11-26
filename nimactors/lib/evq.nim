@@ -83,7 +83,9 @@ proc handleMessage(evq: Evq) {.actor.} =
 # mailbox. This is done by adding a pipe-to-self, which is written by the
 # send() when a message is posted to the mailbox
 
-proc evqActor(fdWake: cint) {.actor.} =
+proc evqActor(fdWake: cint, fdWake2: cint) {.actor.} =
+
+  setMailboxFd(fdWake2)
 
   var evq = Evq(
     epfd: epoll_create(1)
@@ -116,19 +118,19 @@ proc evqActor(fdWake: cint) {.actor.} =
       inc i
 
 
-proc addTimer*(actor: Actor, interval: float) {.cpsVoodoo.} =
+proc addTimer*(actor: Actor, id: ActorID, interval: float) {.cpsVoodoo.} =
   let msg = MessageEvqAddTimer(interval: interval)
-  send(actor.pool, actor.id, actor.pool.evqActorId, msg)
+  send(actor.pool, actor.id, id, msg)
 
 
-proc addFd*(actor: Actor, fd: cint) {.cpsVoodoo.} =
+proc addFd*(actor: Actor, id: ActorID, fd: cint) {.cpsVoodoo.} =
   let msg = MessageEvqAddFd(fd: fd)
-  send(actor.pool, actor.id, actor.pool.evqActorId, msg)
+  send(actor.pool, actor.id, id, msg)
 
 
-proc delFd*(actor: Actor, fd: cint) {.cpsVoodoo.} =
+proc delFd*(actor: Actor, id: ActorId, fd: cint) {.cpsVoodoo.} =
   let msg = MessageEvqDelFd(fd: fd)
-  send(actor.pool, actor.id, actor.pool.evqActorId, msg)
+  send(actor.pool, actor.id, id, msg)
 
 
 proc newEvq*(pool: ref Pool): EvqInfo =
@@ -137,6 +139,6 @@ proc newEvq*(pool: ref Pool): EvqInfo =
   discard pipe(fds)
 
   new result
-  result.actorId = pool.hatch evqActor(fds[0])
+  result.actorId = pool.hatch evqActor(fds[0], fds[1])
   result.fdWake = fds[1]
 

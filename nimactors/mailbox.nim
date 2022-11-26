@@ -16,8 +16,9 @@ import bitline
 type
   
   Mailbox*[T] = ref object
-    lock*: Lock
-    queue*: Deque[T]
+    lock: Lock
+    queue: Deque[T]
+    signalFd: cint
 
   MailHub* = object
     lock*: Lock
@@ -65,14 +66,27 @@ template withMailbox(mailhub: var Mailhub, id: ActorId, code: untyped) =
         code
 
 
+# Set signaling file descriptor for this mailbox
+
+proc setSignalFd*(mailhub: var Mailhub, id: ActorId, fd: cint) =
+  mailhub.withMailbox(id):
+    mailbox.signalFd = fd
+
+
 # Deliver message in the given mailbox
 
 proc sendTo*(mailhub: var Mailhub, srcId, dstId: ActorID, msg: sink Message) =
+  assertIsolated(msg)
   msg.src = srcId
   #echo &"  send {srcId} -> {dstId}: {msg.repr}"
   mailhub.withMailbox(dstId):
-    assertIsolated(msg)
+
     mailbox.queue.addLast(msg)
+
+    if mailbox.signalFd != 0.cint:
+      let b: char = 'x'
+      discard posix.write(mailbox.signalFd, b.addr, 1)
+
     bitline.logValue("actor." & $dstId & ".mailbox", mailbox.queue.len)
 
 
