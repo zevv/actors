@@ -23,6 +23,8 @@ type
     lock*: Lock
     table*: Table[ActorId, Mailbox[Message]]
 
+  MailFilter* = proc(msg: Message): bool
+
   Message* = ref object of Rootobj
     src*: ActorId
 
@@ -80,40 +82,21 @@ proc sendTo*(mailhub: var Mailhub, srcId, dstId: ActorID, msg: sink Message) =
     bitline.logValue("actor." & $dstId & ".mailbox", mailbox.queue.len)
 
 
-# Check for mail, returns nil if nothing found. If the first item in the
-# dequeue matches the filter, pop it. If it is not the first item, nil it
-# and leave a hole.
+# Try to receive one message from the mailbox. If a filter proc is given,
+# get the first message matching the filter.
 
-template tryRecvFilterIt*(mailhub: var Mailhub, id: ActorId, filter: untyped): Message =
-  var msg: Message
+proc tryRecv*(mailhub: var Mailhub, id: ActorId, filter: MailFilter): Message =
   withMailbox(mailhub, id):
-    var i = 0
-    for it {.inject.} in mailbox.queue.mitems:
-      if not it.isNil and filter:
-        msg = it
-        if i == 0:
+    var first = true
+    for msg {.inject.} in mailbox.queue.mitems:
+      if not msg.isNil and (filter.isNil or filter(msg)):
+        result = msg
+        if first:
           mailbox.queue.popFirst()
         else:
-          it = nil
+          msg = nil
         break
-      inc i
-  msg
-
-proc tryRecv*(mailhub: var Mailhub, id: ActorId): Message =
-  tryRecvFilterIt mailhub, id:
-    true
-
-proc tryRecv*(mailhub: var Mailhub, id: ActorId, idSrc: ActorId): Message =
-  tryRecvFilterIt mailhub, id:
-    it.src == idSrc
-
-proc tryRecv*(mailhub: var Mailhub, id: ActorId, T: typedesc): Message =
-  tryRecvFilterIt mailhub, id:
-    it of T
-
-proc tryRecv*(mailhub: var Mailhub, id: ActorId, idSrc: ActorId, T: typedesc): Message =
-  tryRecvFilterIt mailhub, id:
-    it.src == idSrc and it of T
+      first = false
 
 
 proc dump*(mailhub: var Mailhub, id: ActorId) =

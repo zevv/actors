@@ -22,29 +22,43 @@ proc jield*(actor: sink Actor): Actor {.cpsMagic.} =
 
 # Receive a message, non-blocking
 
-proc tryRecv*(actor: Actor): Message {.cpsVoodoo.} =
-  result = actor.pool.mailhub.tryRecv(actor.id)
+proc tryRecv*(actor: Actor, filter: MailFilter): Message {.cpsVoodoo.} =
+  result = actor.pool.mailhub.tryRecv(actor.id, filter)
 
 
 # Receive a message, yield if necessary
 
 when false:
 
-  # This should work but breaks assertIsolated() somewhere
-  proc recv*(): Message {.actor.} =
+  # This should work but breaks assertIsolated() for the actors
+  proc recv*(filter: MailFilter = nil): Message {.actor.} =
     while result.isNil:
-      result = tryRecv()
+      result = tryRecv(filter)
       if result.isNil:
         jield()
+  
+  proc recv*(T: typedesc): Message {.actor.} =
+    result = recv()
+
 else:
 
-  template recv*(): Message =
-    var msg: Message
+  template recv*(filter: MailFilter = nil): Message =
+    var msg: Message = nil
     while msg.isNil:
-      msg = tryRecv()
+      msg = tryRecv(filter)
       if msg.isNil:
         jield()
     msg
+
+  #template recv*(id: ActorId): Message =
+  #  proc filter(msg: Message): bool =
+  #    echo "filter"
+  #  var msg: Message = nil
+  #  while msg.isNil:
+  #    msg = tryRecv(filter)
+  #    if msg.isNil:
+  #      jield()
+  #  msg
 
 
 # Send a message to another actor

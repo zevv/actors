@@ -13,7 +13,6 @@ import actorid
 import actorapi
 import mailbox
 
-
 type
 
   MsgQuestion = ref object of Message
@@ -132,7 +131,9 @@ proc main2() {.actor.} =
 
   while true:
 
-    let m = recv()
+    proc filter(m: Message): bool = true
+
+    let m = recv(filter)
 
     if m of MessageEvqEvent:
       var buf = newString(1024)
@@ -150,12 +151,12 @@ proc main2() {.actor.} =
 proc go() =
   var pool = newPool(4)
 
-  #let evqInfo = newEvq(pool)
-  #pool.evqActorId = evqInfo.actorId
-  #pool.evqFdWake = evqInfo.fdWake
+  let evqInfo = newEvq(pool)
+  pool.evqActorId = evqInfo.actorId
+  pool.evqFdWake = evqInfo.fdWake
   
-  discard pool.hatch main()
-  #discard pool.hatch main2()
+  #discard pool.hatch main()
+  discard pool.hatch main2()
 
   pool.join()
 
