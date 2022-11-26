@@ -28,9 +28,6 @@ type
   Message* = ref object of Rootobj
     src*: ActorId
 
-  MessageDied* = ref object of Message
-    id*: ActorId
-
 proc `$`*(m: Message): string =
   return "#MSG<" & $m.src & ">"
 

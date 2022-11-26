@@ -74,7 +74,7 @@ proc handleMessage(evq: Evq) {.actor.} =
     evq.ios[fd] = io
 
   elif m of MessageEvqDelFd:
-    let fd = m.MessageEvqAddFd.fd
+    let fd = m.MessageEvqDelFd.fd
     discard epoll_ctl(evq.epfd, EPOLL_CTL_DEL, fd.cint, nil)
     evq.ios.del(fd)
 

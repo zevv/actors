@@ -54,6 +54,13 @@ type
     thread: Thread[ptr Worker]
     pool: ptr Pool
 
+  ExitReason = enum
+    erFinished
+
+  MessageExit* = ref object of Message
+    id*: ActorId
+    reason*: ExitReason
+
 
 proc `$`*(pool: ref Pool): string =
   return "#POOL<>"
@@ -144,7 +151,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       #assertIsolated(actor)  # TODO: cps refs child
       #echo &"actor {actor.id} has died, parent was {actor.parent_id}"
       pool.mailhub.unregister(actor.id)
-      let msg = MessageDied(id: actor.id)
+      let msg = MessageExit(id: actor.id, reason: erFinished)
       pool.send(0.ActorId, actor.parent_id, msg)
       
 

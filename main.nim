@@ -102,15 +102,12 @@ proc main() {.actor.} =
 
   while true:
 
-    let m = recv()
-
-    if m of MessageDied:
-      let md = m.MessageDied
-      kids.dec
-      echo &"actor {md.id} died, {kids} kids left!"
-      if kids == 0:
-        send(idCalculator, MsgStop())
-        break
+    let md = recv(MessageExit)
+    kids.dec
+    echo &"actor {md.id} died, reason: {md.reason}, {kids} kids left!"
+    if kids == 0:
+      send(idCalculator, MsgStop())
+      break
 
   echo "main is done"
 
@@ -137,7 +134,10 @@ proc main2() {.actor.} =
   #let id = hatch ticker()
 
   while true:
-    echo "=== ", readFd(0)
+    let l = readFd(0)
+    if l.len == 0:
+      break
+    echo "=== ", l
 
 
 proc go() =
