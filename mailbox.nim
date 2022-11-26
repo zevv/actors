@@ -23,6 +23,8 @@ type
     lock*: Lock
     table*: Table[ActorId, Mailbox[Message]]
 
+  MailFilter* = proc(msg: Message): bool
+
   Message* = ref object of Rootobj
     src*: ActorId
 
@@ -77,14 +79,19 @@ proc sendTo*(mailhub: var Mailhub, srcId, dstId: ActorID, msg: sink Message) =
     bitline.logValue("actor." & $dstId & ".mailbox", mailbox.queue.len)
 
 
-# Check for mail, returns nil if nothing found
+# Try to receive one message from the mailbox. If a filter proc is given,
+# get the first message matching the filter.
 
-proc tryRecv*(mailhub: var Mailhub, id: ActorId): Message =
-  var len: int
-  mailhub.withMailbox(id):
-    len = mailbox.queue.len
-    if len > 0:
-      result = mailbox.queue.popFirst()
-      assertIsolated(result)
-      bitline.logValue("actor." & $id & ".mailbox", len)
+proc tryRecv*(mailhub: var Mailhub, id: ActorId, filter: MailFilter = nil): Message =
+  withMailbox(mailhub, id):
+    var first = true
+    for msg {.inject.} in mailbox.queue.mitems:
+      if not msg.isNil and (filter.isNil or filter(msg)):
+        result = msg
+        if first:
+          mailbox.queue.popFirst()
+        else:
+          msg = nil
+        break
+      first = false
 

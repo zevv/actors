@@ -122,27 +122,22 @@ proc ticker() {.actor.} =
     os.sleep(100)
 
 
+proc readFd(fd: cint): string {.actor.} =
+  addFd(fd)
+  discard recv(MessageEvqEvent)
+  var buf = newString(1024)
+  let r = posix.read(0, buf[0].addr, buf.len)
+  buf.setLen if r > 0: r else: 0
+  delFd(fd)
+  buf
+
+
 proc main2() {.actor.} =
 
   #let id = hatch ticker()
 
-  addFd(0)
-
   while true:
-
-    let m = recv()
-
-    if m of MessageEvqEvent:
-      var buf = newString(1024)
-      let r = posix.read(0, buf[0].addr, buf.len)
-
-      if r > 0:
-        buf.setLen if r > 0: r else: 0
-        echo "> ", buf
-      else:
-        echo "done"
-        delFd(0)
-        break
+    echo "=== ", readFd(0)
 
 
 proc go() =

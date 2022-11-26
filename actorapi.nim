@@ -25,11 +25,17 @@ proc jield*(actor: sink Actor): Actor {.cpsMagic.} =
 proc tryRecv*(actor: Actor): Message {.cpsVoodoo.} =
   result = actor.pool.mailhub.tryRecv(actor.id)
 
+proc tryRecv*(actor: Actor, srcId: ActorId): Message {.cpsVoodoo.} =
+  proc filter(msg: Message): bool = msg.src == srcId
+  result = actor.pool.mailhub.tryRecv(actor.id, filter)
+
+proc tryRecv*(actor: Actor, T: typedesc): Message {.cpsVoodoo.} =
+  proc filter(msg: Message): bool = msg of T
+  result = actor.pool.mailhub.tryRecv(actor.id, filter)
 
 # Receive a message, blocking
 
 template recv*(): Message =
-  # TODO: why the need to set to nil?
   var msg: Message = nil
   while msg.isNil:
     msg = tryRecv()
@@ -37,6 +43,13 @@ template recv*(): Message =
       jield()
   msg
 
+template recv*(T: typedesc): auto =
+  var msg: Message = nil
+  while msg.isNil:
+    msg = tryRecv(T)
+    if msg.isNil:
+      jield()
+  T(msg)
 
 # Send a message to another actor
 
