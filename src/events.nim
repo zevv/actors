@@ -68,7 +68,7 @@ proc handleMessage(evq: Evq) {.actor.} =
 
   elif m of MessageEvqAddFd:
     let fd = m.MessageEvqAddFd.fd
-    var ee2 = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: fd.uint64))
+    var ee2 = EpollEvent(events: POLLIN.uint32 or EPOLLET.uint32, data: EpollData(u64: fd.uint64))
     discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fd.cint, ee2.addr)
     let io = Io(kind: iokFd, actorId: m.src)
     evq.ios[fd] = io
@@ -77,10 +77,7 @@ proc handleMessage(evq: Evq) {.actor.} =
     let fd = m.MessageEvqDelFd.fd
     discard epoll_ctl(evq.epfd, EPOLL_CTL_DEL, fd.cint, nil)
     evq.ios.del(fd)
-
-  elif m of MessageKill:
-    echo "boom"
-
+  
   else:
     echo "unhandled message"
 

@@ -29,7 +29,7 @@ type
     src*: ActorId
 
 proc `$`*(m: Message): string =
-  return "#MSG<" & $m.src & ">"
+  return "#MSG<src:" & $(m.src.int) & ">"
 
 
 # Get number of mailboxes in a mailhub

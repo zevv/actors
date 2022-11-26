@@ -35,6 +35,7 @@ type
 proc calculator() {.actor.} =
 
   while true:
+    os.sleep(10)
     let m = recv()
 
     if m of MsgQuestion:
@@ -95,7 +96,7 @@ proc main() {.actor.} =
   let idCalculator = hatch calculator()
   
   var i = 0
-  while i < 0:
+  while i < 10:
     let i2 = hatch bob(idCalculator, 2)
     inc kids
     inc i
@@ -112,6 +113,10 @@ proc main() {.actor.} =
     if kids == 0:
       send(idCalculator, MsgStop())
       break
+
+  echo "recv mesg"
+  let m = recv()
+  echo "Got mesg"
 
   echo "main is done"
 
@@ -145,8 +150,7 @@ proc main2(aidEvq: ActorId) {.actor.} =
     if l.contains("boom"):
       raise newException(IOError, "flap")
 
-
-  echo "main2 done"
+  echo "main2 done, killing ", aidEvq
   kill(aidEvq)
 
 

@@ -14,34 +14,31 @@ macro actor*(n: untyped): untyped =
   n     
 
 
-# Yield
+# Move the given actor to the idle queue. It will only be moved aback to the
+# workQueue whenever a new message arrives
 
-proc jield*(actor: sink Actor): Actor {.cpsMagic.} =
-  actor.pool.jieldActor(actor)
+proc toIdleQueue*(actor: sink Actor): Actor {.cpsMagic.} =
+  actor.pool.toIdleQueue(actor)
 
 
 # Receive a message, nonblocking
 
 proc tryRecv*(actor: Actor): Message {.cpsVoodoo.} =
   result = actor.pool.mailhub.tryRecv(actor.id)
-  if not result.isNil and result of MessageKill:
-    actor.killed = true
-    result = nil
+  if result of MessageKill:
+    result = nil # will cause a jield, catching the kill
 
 proc tryRecv*(actor: Actor, srcId: ActorId): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg.src == srcId
   result = actor.pool.mailhub.tryRecv(actor.id, filter)
-  echo result
-  if not result.isNil and result of MessageKill:
-    actor.killed = true
-    result = nil
+  if result of MessageKill:
+    result = nil # will cause a jield, catching the kill
 
 proc tryRecv*(actor: Actor, T: typedesc): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg of T
   result = actor.pool.mailhub.tryRecv(actor.id, filter)
-  if not result.isNil and result of MessageKill:
-    actor.killed = true
-    result = nil
+  if result of MessageKill:
+    result = nil # will cause a jield, catching the kill
 
 # Receive a message, blocking
 
@@ -50,7 +47,7 @@ template recv*(): Message =
   while msg.isNil:
     msg = tryRecv()
     if msg.isNil:
-      jield()
+      toIdleQueue()
   msg
 
 template recv*(T: typedesc): auto =
@@ -58,35 +55,45 @@ template recv*(T: typedesc): auto =
   while msg.isNil:
     msg = tryRecv(T)
     if msg.isNil:
-      jield()
+      toIdleQueue()
   T(msg)
+
 
 # Send a message to another actor
 
 proc send*(actor: Actor, dst: ActorId, msg: sink Message) {.cpsVoodoo.} =
   actor.pool.send(actor.id, dst, msg)
 
+
 # Send a kill message to another actor
 
 proc kill*(actor: Actor, dst: ActorId) {.cpsVoodoo.} =
-  actor.pool.send(actor.id, dst, MessageKill())
+  actor.pool.kill(dst)
+
 
 # Hatch an actor from within an actor
 
-proc hatchFromActor*(actor: Actor, newActor: sink Actor): ActorId {.cpsVoodoo.} =
-  hatchAux(actor.pool, newActor, actor.id)
+proc hatchVoodoo*(actor: Actor, newActor: sink Actor, link: bool): ActorId {.cpsVoodoo.} =
+  hatchAux(actor.pool, newActor, actor.id, link)
 
 
-# Create and initialize a new actor from within an actor
+# Hatches the given actor and returns its AID.
 
 template hatch*(c: typed): ActorId =
   let actor = Actor(whelp c)
-  hatchFromActor(actor)
+  hatchVoodoo(actor, false)
 
 
-# Returns the ActorID of the calling actor
+# Hatches the given actor passing, links it to the current process, and returns
+# its PID.
+
+template hatchLinked*(c: typed): ActorId =
+  let actor = Actor(whelp c)
+  hatchVoodoo(actor, true)
+
+
+# Returns the AID of the calling actor
 
 proc self*(actor: Actor): ActorId {.cpsVoodoo.} =
   actor.id
-
 

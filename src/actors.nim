@@ -3,6 +3,7 @@ import os
 import strformat
 import std/macros
 import std/locks
+import std/rlocks
 import std/deques
 import std/tables
 import std/posix
@@ -36,6 +37,7 @@ type
     workCond: Cond
     workQueue: Deque[Actor] # actor that needs to be run asap on any worker
     idleQueue: Table[ActorId, Actor] # actor that is waiting for messages
+    killReq: Table[ActorId, bool]
 
     # mailboxes for the actors
     mailhub*: MailHub
@@ -48,7 +50,7 @@ type
     id*: ActorId
     parentId*: ActorId
     pool*: ptr Pool
-    killed*: bool
+    links: seq[ActorId]
 
   Worker = object
     id: int
@@ -57,9 +59,9 @@ type
 
   ExitReason* = enum
     erNormal, erKilled, erError
-  
-  MessageKill* = ref object of Message
 
+  MessageKill* = ref object of Message
+  
   MessageExit* = ref object of Message
     id*: ActorId
     reason*: ExitReason
@@ -96,7 +98,7 @@ proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
   withLock pool.workLock:
     if dstId in pool.idleQueue:
       #echo "wake ", dstId
-      var actor = pool.idleQueue[dstId]
+      let actor = pool.idleQueue[dstId]
       pool.idleQueue.del(dstId)
       pool.workQueue.addLast(actor)
       pool.workCond.signal()
@@ -107,6 +109,11 @@ proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
     discard posix.write(pool.evqFdWake, b.addr, 1)
 
 
+# Signal termination of an actor; inform the parent and kill any linked
+# actors.
+
+proc kill*(pool: ptr Pool, id: ActorId)
+
 proc exit(actor: sink Actor, reason: ExitReason, ex: ref Exception = nil) =
   #assertIsolated(actor)  # TODO: cps refs child
   let pool = actor.pool
@@ -114,28 +121,59 @@ proc exit(actor: sink Actor, reason: ExitReason, ex: ref Exception = nil) =
   pool.mailhub.unregister(actor.id)
   let msg = MessageExit(id: actor.id, reason: reason, ex: ex)
   pool.send(0.ActorId, actor.parent_id, msg)
+  for id in actor.links:
+    {.cast(gcsafe).}:
+      pool.kill(id)
+
+
+# Kill an actor
+
+proc kill*(pool: ptr Pool, id: ActorId) =
+  withLock pool.workLock:
+    # Mark the actor as to-be-killed so it will be caught before trampolining
+    # or when jielding
+    pool.killReq[id] = true
+    # Send the actor a message so it will wake up if it is in the idle pool
+  pool.send(0.ActorId, id, MessageKill())
+
 
 
 # Move actor to the idle queue
 
-proc jieldActor*(pool: ptr Pool, actor: sink Actor) =
-  if (not actor.isNil and actor.killed):
-    actor.exit(erKilled)
-    return
-
+proc toIdleQueue*(pool: ptr Pool, actor: sink Actor) =
+  var killed = false
   withLock pool.workLock:
     #assertIsolated(actor) # TODO
-    pool.idleQueue[actor.id] = actor
-    actor = nil
+    if actor.id in pool.killReq:
+      pool.killReq.del(actor.id)
+      killed = true
+    else:
+      pool.idleQueue[actor.id] = actor
+      actor = nil
+
+  if killed:
+    exit(actor, erKilled)
 
 
 proc waitForWork(pool: ptr Pool): Actor =
-  withLock pool.workLock:
-    while pool.workQueue.len == 0 and not pool.stop:
-      pool.workCond.wait(pool.workLock)
-    if not pool.stop:
-      result = pool.workQueue.popFirst()
-      #assertIsolated(result)  # TODO: cps refs child
+  while true:
+    withLock pool.workLock:
+
+      while pool.workQueue.len == 0 and not pool.stop:
+        pool.workCond.wait(pool.workLock)
+
+      if pool.stop:
+        break
+
+      else:
+        let actor = pool.workQueue.popFirst()
+        #echo "Found work ", actor
+        #assertIsolated(actor)  # TODO: cps refs child
+        if actor.id in pool.killReq:
+          #echo "not trampolining because killed ", actor
+          exit(actor, erKilled)
+        else:
+          return actor
 
 
 
@@ -165,17 +203,15 @@ proc workerThread(worker: ptr Worker) {.thread.} =
           while not actor.isNil and not actor.fn.isNil:
             actor = actor.fn(actor).Actor
       except:
-        echo "except ", actor
         actor.exit(erError, getCurrentException())
 
-    # Cleanup if continuation has finixhed
+    # Cleanup if continuation has finished
 
     if actor.finished:
-      echo "Finished ", actor
       actor.exit(erNormal)
       
 
-proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId): ActorId =
+proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId, link=false): ActorId =
 
   assert not isNil(actor)
   assertIsolated(actor)
@@ -187,6 +223,9 @@ proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId)
   actor.pool = pool[].addr
   actor.id = id
   actor.parentId = parentId
+
+  if link:
+    actor.links.add parentId
 
   # Register a mailbox for the actor
   pool.mailhub.register(actor.id)
@@ -241,6 +280,8 @@ proc join*(pool: ref Pool) =
   withLock pool.workLock:
     pool.stop = true
     pool.workCond.broadcast()
+
+  echo "waiting for workers to join"
 
   for worker in pool.workers:
     worker.thread.joinThread()
