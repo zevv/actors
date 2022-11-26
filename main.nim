@@ -1,6 +1,7 @@
 
 import std/os
 import std/strformat
+import std/strutils
 import std/times
 import std/posix
 
@@ -94,8 +95,8 @@ proc main() {.actor.} =
   let idCalculator = hatch calculator()
   
   var i = 0
-  while i < 20:
-    let i2 = hatch bob(idCalculator, 100)
+  while i < 0:
+    let i2 = hatch bob(idCalculator, 2)
     inc kids
     inc i
 
@@ -106,6 +107,8 @@ proc main() {.actor.} =
     let md = recv(MessageExit)
     kids.dec
     echo &"actor {md.id} died, reason: {md.reason}, {kids} kids left!"
+    if md.reason == erError:
+      echo "An exception occured: ", md.ex.msg, "\n", md.ex.getStackTrace()
     if kids == 0:
       send(idCalculator, MsgStop())
       break
@@ -139,13 +142,16 @@ proc main2(aidEvq: ActorId) {.actor.} =
     if l.len == 0:
       break
     echo "=== ", l
+    if l.contains("boom"):
+      raise newException(IOError, "flap")
+
 
   echo "main2 done"
   kill(aidEvq)
 
 
 proc go() =
-  var pool = newPool(4)
+  var pool = newPool(2)
   let evqInfo = newEvq(pool)
 
   pool.evqActorId = evqInfo.actorId

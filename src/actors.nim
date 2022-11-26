@@ -55,21 +55,22 @@ type
     thread: Thread[ptr Worker]
     pool: ptr Pool
 
-  ExitReason = enum
-    erFinished, erKilled
+  ExitReason* = enum
+    erNormal, erKilled, erError
   
   MessageKill* = ref object of Message
 
   MessageExit* = ref object of Message
     id*: ActorId
     reason*: ExitReason
+    ex*: ref Exception
 
 
 proc `$`*(pool: ref Pool): string =
   return "#POOL<>"
 
 proc `$`*(a: Actor): string =
-  return "#ACT<" & $a.parent_id & "." & $a.id & ">"
+  return "#ACT<" & $(a.parent_id.int) & "." & $(a.id.int) & ">"
 
 proc `$`*(worker: ref Worker | ptr Worker): string =
   return "#WORKER<" & $worker.id & ">"
@@ -106,12 +107,12 @@ proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
     discard posix.write(pool.evqFdWake, b.addr, 1)
 
 
-proc del(actor: sink Actor, reason: ExitReason) =
+proc exit(actor: sink Actor, reason: ExitReason, ex: ref Exception = nil) =
   #assertIsolated(actor)  # TODO: cps refs child
   let pool = actor.pool
   echo &"actor {actor.id} exit, reason: {reason}, parent was {actor.parent_id}"
   pool.mailhub.unregister(actor.id)
-  let msg = MessageExit(id: actor.id, reason: erFinished)
+  let msg = MessageExit(id: actor.id, reason: reason, ex: ex)
   pool.send(0.ActorId, actor.parent_id, msg)
 
 
@@ -119,7 +120,7 @@ proc del(actor: sink Actor, reason: ExitReason) =
 
 proc jieldActor*(pool: ptr Pool, actor: sink Actor) =
   if (not actor.isNil and actor.killed):
-    actor.del(erKilled)
+    actor.exit(erKilled)
     return
 
   withLock pool.workLock:
@@ -159,13 +160,19 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     # Trampoline the continuation
 
     bitline.log "worker." & $worker.id & ".run":
-      {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
-        actor = trampoline(actor)
+      try:
+        {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
+          while not actor.isNil and not actor.fn.isNil:
+            actor = actor.fn(actor).Actor
+      except:
+        echo "except ", actor
+        actor.exit(erError, getCurrentException())
 
     # Cleanup if continuation has finixhed
 
     if actor.finished:
-      actor.del(erFinished)
+      echo "Finished ", actor
+      actor.exit(erNormal)
       
 
 proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId): ActorId =
