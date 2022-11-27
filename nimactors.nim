@@ -2,12 +2,7 @@
 import cps
 export cps
 
-#import nimactors/actorid
-#export ActorId
-#export `$`
-
 import nimactors/actors
-#export newActorInfo
 export ActorCont
 export actors
 export ExitReason
@@ -30,5 +25,5 @@ export self
 export send
 export toIdleQueue
 export tryRecv
-export setMailboxFd
+export setSignalFd
 

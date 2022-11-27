@@ -97,9 +97,9 @@ proc self*(c: ActorCont): Actor {.cpsVoodoo.} =
 
 # Register a signaling file descriptor for this actors mailbox
 
-proc setMailboxFd*(c: ActorCont, fd: cint) {.cpsVoodoo.} =
+proc setSignalFd*(c: ActorCont, fd: cint) {.cpsVoodoo.} =
   c.pool.setSignalFd(c.actor, fd)
 
-proc setMailboxFd*(c: ActorCont, id: Actor, fd: cint) {.cpsVoodoo.} =
+proc setSignalFd*(c: ActorCont, id: Actor, fd: cint) {.cpsVoodoo.} =
   c.pool.setSignalFd(id, fd)
 

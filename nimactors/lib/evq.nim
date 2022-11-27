@@ -161,7 +161,7 @@ proc newEvq*(): Evq {.actor.} =
   discard pipe(fds)
   
   let actor = hatch evqActor(fds[0])
-  setMailboxFd(actor, fds[1])
+  setSignalFd(actor, fds[1])
 
   Evq(actor: actor)
 
