@@ -5,18 +5,7 @@ import std/monotimes
 import std/tables
 import std/heapqueue
 
-import cps
-
 import ../../nimactors
-
-
-proc timerfd_create(clock_id: ClockId, flags: cint): cint
-     {.cdecl, importc: "timerfd_create", header: "<sys/timerfd.h>".}
-
-proc timerfd_settime(ufd: cint, flags: cint,
-                      utmr: var Itimerspec, otmr: var Itimerspec): cint
-     {.cdecl, importc: "timerfd_settime", header: "<sys/timerfd.h>".}
-
 
 type
 
@@ -139,6 +128,7 @@ type
 
   Evq* = ref object
     id*: ActorId
+
 
 proc addTimer*(actor: Actor, evq: Evq, interval: float) {.cpsVoodoo.} =
   send(actor.pool, actor.id, evq.id, MessageEvqAddTimer(interval: interval))

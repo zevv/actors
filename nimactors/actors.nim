@@ -236,7 +236,6 @@ template hatch*(pool: ref Pool, c: typed): ActorId =
   hatchAux(pool, actor)
 
 
-
 # Create pool with actor queue and worker threads
 
 proc newPool*(nWorkers: int): ref Pool =
