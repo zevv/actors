@@ -43,7 +43,6 @@ type
 
   Actor* = ref object of Continuation
     id*: ActorId
-    parentId*: ActorId
     pool*: ptr Pool
 
   ActorInfoObject* = object
@@ -144,7 +143,7 @@ proc `$`*(pool: ref Pool): string =
   return "#POOL<>"
 
 proc `$`*(a: Actor): string =
-  return "#ACT<" & $(a.parent_id.int) & "." & $(a.id.int) & ">"
+  return "#ACT<" & $(a.id.int) & ">"
 
 proc `$`*(worker: ref Worker | ptr Worker): string =
   return "#WORKER<" & $worker.id & ">"
@@ -217,10 +216,12 @@ proc exit(actor: sink Actor, reason: ExitReason, ex: ref Exception = nil) =
     echo ex.getStackTrace()
 
   let pool = actor.pool
-  
-  pool.send(0.ActorId, actor.parent_id, MessageExit(id: actor.id, reason: reason, ex: ex))
 
   pool.withInfo actor.id:
+  
+    pool.send(0.ActorId, info[].id_parent,
+              MessageExit(id: actor.id, reason: reason, ex: ex))
+
     for id in info[].links:
       {.cast(gcsafe).}:
         pool.kill(id)
@@ -303,7 +304,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       actor.exit(erNormal)
       
 
-proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId, link=false): ActorId =
+proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, idParent=0.ActorId, link=false): ActorId =
 
   assert not isNil(actor)
   assertIsolated(actor)
@@ -314,15 +315,14 @@ proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId,
   # Initialize actor
   actor.pool = pool[].addr
   actor.id = id
-  actor.parentId = parentId
   
   let info = newActorInfo()
   info[].id = id
-  info[].idParent = parentId
+  info[].idParent = idParent
   info[].lock.initLock()
 
   if link:
-    info[].links.add parentId
+    info[].links.add idParent
   
   withLock pool.infoLock:
     pool.infoTable[id] = info
