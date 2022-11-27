@@ -92,8 +92,8 @@ proc main() {.actor.} =
   let idCalculator = hatch calculator()
   
   var i = 0
-  while i < 10:
-    let i2 = hatch bob(idCalculator, 2)
+  while i < 1:
+    let i2 = hatch bob(idCalculator, 1)
     inc kids
     inc i
 
@@ -158,11 +158,21 @@ proc main2() {.actor.} =
   kill(evq.id)
 
 
+proc foo(id: ActorId) {.actor.} =
+
+  send(id, Message())
+
+proc main3() {.actor.} =
+
+  let i = hatch foo(self())
+  let m = recv()
+
 proc go() =
   var pool = newPool(2)
 
   discard pool.hatch main()
   discard pool.hatch main2()
+  #discard pool.hatch main3()
 
   pool.join()
 

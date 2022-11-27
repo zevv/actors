@@ -7,7 +7,6 @@ import cps
 import actorid
 import actors
 import isisolated
-import mailbox
  
 macro actor*(n: untyped): untyped =
   n.addPragma nnkExprColonExpr.newTree(ident"cps", ident"Actor")
@@ -24,19 +23,19 @@ proc toIdleQueue*(actor: sink Actor): Actor {.cpsMagic.} =
 # Receive a message, nonblocking
 
 proc tryRecv*(actor: Actor): Message {.cpsVoodoo.} =
-  result = actor.pool.mailhub.tryRecv(actor.id)
+  result = actor.pool.tryRecv(actor.id)
   if result of MessageKill:
     result = nil # will cause a jield, catching the kill
 
 proc tryRecv*(actor: Actor, srcId: ActorId): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg.src == srcId
-  result = actor.pool.mailhub.tryRecv(actor.id, filter)
+  result = actor.pool.tryRecv(actor.id, filter)
   if result of MessageKill:
     result = nil # will cause a jield, catching the kill
 
 proc tryRecv*(actor: Actor, T: typedesc): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg of T
-  result = actor.pool.mailhub.tryRecv(actor.id, filter)
+  result = actor.pool.tryRecv(actor.id, filter)
   if result of MessageKill:
     result = nil # will cause a jield, catching the kill
 
@@ -100,8 +99,8 @@ proc self*(actor: Actor): ActorId {.cpsVoodoo.} =
 # Register a signaling file descriptor for this actors mailbox
 
 proc setMailboxFd*(actor: Actor, fd: cint) {.cpsVoodoo.} =
-  actor.pool.mailhub.setSignalFd(actor.id, fd)
+  actor.pool.setSignalFd(actor.id, fd)
 
 proc setMailboxFd*(actor: Actor, id: ActorId, fd: cint) {.cpsVoodoo.} =
-  actor.pool.mailhub.setSignalFd(id, fd)
+  actor.pool.setSignalFd(id, fd)
 

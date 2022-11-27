@@ -14,7 +14,6 @@ import cps
 
 import bitline
 import actorid
-import mailbox
 import isisolated
 import mallinfo
 
@@ -39,14 +38,26 @@ type
     idleQueue: Table[ActorId, Actor] # actor that is waiting for messages
     killReq: Table[ActorId, bool]
 
-    # mailboxes for the actors
-    mailhub*: MailHub
+    infoLock: Lock
+    infoTable: Table[ActorId, ActorInfo]
 
   Actor* = ref object of Continuation
     id*: ActorId
     parentId*: ActorId
     pool*: ptr Pool
+
+  ActorInfoObject* = object
+    id*: ActorId
+    idParent*: ActorId
+    rc*: Atomic[int]
+
+    lock: Lock
     links: seq[ActorId]
+    mailBox: Deque[Message]
+    signalFd: cint
+
+  ActorInfo* = object
+    p*: ptr ActorInfoObject
 
   Worker = object
     id: int
@@ -55,6 +66,9 @@ type
 
   ExitReason* = enum
     erNormal, erKilled, erError
+  
+  Message* = ref object of Rootobj
+    src*: ActorId
 
   MessageKill* = ref object of Message
   
@@ -62,6 +76,61 @@ type
     id*: ActorId
     reason*: ExitReason
     ex*: ref Exception
+
+  MailFilter* = proc(msg: Message): bool
+
+
+proc `$`*(m: Message): string =
+  if not m.isNil:
+    return "#MSG<src:" & $(m.src.int) & ">"
+  else:
+    return "nil"
+
+
+
+proc newActorInfo*(): ActorInfo =
+  result.p = create(ActorInfoObject)
+  #echo "ai: new ", cast[int](result.p)
+  result.p[].rc.store(0)
+
+
+proc `=destroy`*(ai: var ActorInfo) =
+  if not ai.p.isNil:
+    if ai.p[].rc.load(moAcquire) == 0:
+      #echo "ai: destroy"
+      `=destroy`(ai.p[])
+      deallocShared(ai.p)
+    else:
+      #echo "ai: rc --"
+      ai.p[].rc.atomicDec()
+
+
+proc `=copy`*(dest: var ActorInfo, ai: ActorInfo) =
+  if not ai.p.isNil:
+    #echo "ai: rc ++"
+    ai.p[].rc.atomicInc()
+  if not dest.p.isNil:
+    `=destroy`(dest)
+  dest.p = ai.p
+
+
+proc `[]`*(ai: ActorInfo): var ActorInfoObject =
+  assert not ai.p.isNil
+  ai.p[]
+
+
+
+template withInfo(pool: ptr Pool, id: ActorId, code: untyped) =
+  var info {.inject.}: ActorInfo
+  withLock pool.infoLock:
+    if id in pool.infoTable:
+      info = pool.infoTable[id]
+
+  if not info.p.isNil:
+    withLock info[].lock:
+      code
+  else:
+    echo "No info found for ", id
 
 
 # Forward declerations
@@ -92,10 +161,18 @@ proc pass*(cFrom, cTo: Actor): Actor =
 # Send a message from srcId to dstId
 
 proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
-
   assertIsolated(msg)
+  #echo &"  send {srcId} -> {dstId}: {msg.repr}"
+  msg.src = srcId
 
-  pool.mailhub.sendTo(srcId, dstId, msg)
+  # Deliver the message in the target mailbox
+  pool.withInfo dstId:
+    info[].mailbox.addLast(msg)
+    bitline.logValue("actor." & $dstId & ".mailbox", info[].mailbox.len)
+    # If the target has a signalFd, wake it
+    if info[].signalFd != 0.cint:
+      let b: char = 'x'
+      discard posix.write(info[].signalFd, b.addr, 1)
 
   # If the target continuation is in the sleep queue, move it to the work queue
   withLock pool.workLock:
@@ -107,24 +184,49 @@ proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
       pool.workCond.signal()
 
 
+# Receive a message
+
+proc tryRecv*(pool: ptr Pool, id: ActorId, filter: MailFilter = nil): Message =
+  pool.withInfo id:
+    var first = true
+    for msg in info[].mailbox.mitems:
+      if not msg.isNil and (filter.isNil or filter(msg)):
+        result = msg
+        if first:
+          info[].mailbox.popFirst()
+        else:
+          msg = nil
+        break
+      first = false
+  #echo &"  tryRecv {id}: {result}"
+
+
+proc setSignalFd*(pool: ptr Pool, id: ActorId, fd: cint) =
+  pool.withInfo id:
+    info[].signalFd = fd
+
 # Signal termination of an actor; inform the parent and kill any linked
 # actors.
 
 proc exit(actor: sink Actor, reason: ExitReason, ex: ref Exception = nil) =
   #assertIsolated(actor)  # TODO: cps refs child
 
-  echo &"{actor.id} exit, reason: {reason}"
+  echo &"Actor {actor.id} terminated, reason: {reason}"
   if not ex.isNil:
     echo "Exception: ", ex.msg
     echo ex.getStackTrace()
 
   let pool = actor.pool
-  pool.mailhub.unregister(actor.id)
-  let msg = MessageExit(id: actor.id, reason: reason, ex: ex)
-  pool.send(0.ActorId, actor.parent_id, msg)
-  for id in actor.links:
-    {.cast(gcsafe).}:
-      pool.kill(id)
+  
+  pool.send(0.ActorId, actor.parent_id, MessageExit(id: actor.id, reason: reason, ex: ex))
+
+  pool.withInfo actor.id:
+    for id in info[].links:
+      {.cast(gcsafe).}:
+        pool.kill(id)
+
+  withLock pool.infoLock:
+    pool.infoTable.del(actor.id)
 
 
 # Kill an actor
@@ -213,12 +315,17 @@ proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, parentId=0.ActorId,
   actor.pool = pool[].addr
   actor.id = id
   actor.parentId = parentId
+  
+  let info = newActorInfo()
+  info[].id = id
+  info[].idParent = parentId
+  info[].lock.initLock()
 
   if link:
-    actor.links.add parentId
-
-  # Register a mailbox for the actor
-  pool.mailhub.register(actor.id)
+    info[].links.add parentId
+  
+  withLock pool.infoLock:
+    pool.infoTable[id] = info
 
   # Add the new actor to the work queue
   withLock pool.workLock:
@@ -243,6 +350,7 @@ proc newPool*(nWorkers: int): ref Pool =
   var pool = new Pool
   initLock pool.workLock
   initCond pool.workCond
+  initLock pool.infoLock
 
   for i in 0..<nWorkers:
     var worker = new Worker
@@ -258,14 +366,17 @@ proc newPool*(nWorkers: int): ref Pool =
 
 proc join*(pool: ref Pool) =
 
-  while pool.mailhub.len > 0:
-    let mi = mallinfo2()
-    bitline.logValue("stats.mailboxes", pool.mailhub.len)
-    bitline.logValue("stats.mem_alloc", mi.uordblks)
-    bitline.logValue("stats.mem_arena", mi.arena)
+  while true:
+    withLock pool.infoLock:
+      if pool.infoTable.len == 0:
+        break
+      let mi = mallinfo2()
+      bitline.logValue("stats.mailboxes", pool.infoTable.len)
+      bitline.logValue("stats.mem_alloc", mi.uordblks)
+      bitline.logValue("stats.mem_arena", mi.arena)
     os.sleep(10)
 
-  echo "all mailboxes gone"
+  echo "all actors gone"
 
   withLock pool.workLock:
     pool.stop = true

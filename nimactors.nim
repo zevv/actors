@@ -7,6 +7,7 @@ export ActorId
 export `$`
 
 import nimactors/actors
+export newActorInfo
 export Actor
 export actors
 export ExitReason
@@ -31,5 +32,3 @@ export toIdleQueue
 export tryRecv
 export setMailboxFd
 
-import nimactors/mailbox
-export Message
