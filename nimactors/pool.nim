@@ -117,8 +117,8 @@ proc exit(c: sink ActorCont, reason: ExitReason, ex: ref Exception = nil) =
               MessageExit(id: c.actor, reason: reason, ex: ex))
 
     for id in actor[].links:
-      #{.cast(gcsafe).}:
-      pool.kill(id)
+      {.cast(gcsafe).}:
+        pool.kill(id)
     
     reset actor[].parent
 
