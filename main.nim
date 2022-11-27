@@ -92,8 +92,8 @@ proc main() {.actor.} =
   let idCalculator = hatch calculator()
   
   var i = 0
-  while i < 1:
-    let i2 = hatch bob(idCalculator, 1)
+  while i < 5:
+    let i2 = hatch bob(idCalculator, 5)
     inc kids
     inc i
 
@@ -154,8 +154,8 @@ proc main2() {.actor.} =
     if l.contains("boom"):
       raise newException(IOError, "flap")
 
-  echo "main2 done, killing ", evq.id
-  kill(evq.id)
+  echo "main2 done, killing ", evq.actor
+  kill(evq.actor)
 
 
 proc foo() {.actor.} =
@@ -170,10 +170,10 @@ proc main3() {.actor.} =
   #let m = recv()
 
 proc go() =
-  var pool = newPool(2)
+  var pool = newPool(4)
 
   discard pool.hatch main()
-  #discard pool.hatch main2()
+  discard pool.hatch main2()
   discard pool.hatch main3()
 
   pool.join()

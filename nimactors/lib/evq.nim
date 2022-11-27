@@ -135,19 +135,19 @@ proc evqActor*(fdWake: cint) {.actor.} =
 type
 
   Evq* = ref object
-    id*: Actor
+    actor*: Actor
 
 
 proc addTimer*(c: ActorCond, evq: Evq, interval: float) {.cpsVoodoo.} =
-  send(c.pool, c.actor, evq.id, MessageEvqAddTimer(interval: interval))
+  send(c.pool, c.actor, evq.actor, MessageEvqAddTimer(interval: interval))
 
 
 proc addFd*(c: ActorCond, evq: Evq, fd: cint) {.cpsVoodoo.} =
-  send(c.pool, c.actor, evq.id, MessageEvqAddFd(fd: fd))
+  send(c.pool, c.actor, evq.actor, MessageEvqAddFd(fd: fd))
 
 
 proc delFd*(c: ActorCond, evq: Evq, fd: cint) {.cpsVoodoo.} =
-  send(c.pool, c.actor, evq.id, MessageEvqDelFd(fd: fd))
+  send(c.pool, c.actor, evq.actor, MessageEvqDelFd(fd: fd))
 
 
 proc sleep*(evq: Evq, interval: float) {.actor.} =
@@ -160,10 +160,10 @@ proc newEvq*(): Evq {.actor.} =
   var fds: array[2, cint]
   discard pipe(fds)
   
-  let id = hatch evqActor(fds[0])
-  setMailboxFd(id, fds[1])
+  let actor = hatch evqActor(fds[0])
+  setMailboxFd(actor, fds[1])
 
-  Evq(id: id)
+  Evq(actor: actor)
 
 
 

@@ -380,7 +380,7 @@ proc join*(pool: ref Pool) =
       if pool.actors.len == 0:
         break
       let mi = mallinfo2()
-      bitline.logValue("stats.mailboxes", pool.actors.len)
+      bitline.logValue("stats.actors", pool.actors.len)
       bitline.logValue("stats.mem_alloc", mi.uordblks)
       bitline.logValue("stats.mem_arena", mi.arena)
     os.sleep(10)
