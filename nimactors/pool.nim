@@ -96,6 +96,7 @@ proc setSignalFd*(pool: ptr Pool, actor: Actor, fd: cint) =
   withLock actor:
     actor[].signalFd = fd
 
+
 # Signal termination of an actor; inform the parent and kill any linked
 # actors.
 
@@ -116,8 +117,8 @@ proc exit(c: sink ActorCont, reason: ExitReason, ex: ref Exception = nil) =
               MessageExit(id: c.actor, reason: reason, ex: ex))
 
     for id in actor[].links:
-      {.cast(gcsafe).}:
-        pool.kill(id)
+      #{.cast(gcsafe).}:
+      pool.kill(id)
     
     reset actor[].parent
 
