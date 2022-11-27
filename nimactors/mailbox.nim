@@ -83,6 +83,7 @@ proc sendTo*(mailhub: var Mailhub, srcId, dstId: ActorID, msg: sink Message) =
 
     mailbox.queue.addLast(msg)
 
+    echo "send ", mailbox.signalFd
     if mailbox.signalFd != 0.cint:
       let b: char = 'x'
       discard posix.write(mailbox.signalFd, b.addr, 1)

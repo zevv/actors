@@ -152,10 +152,10 @@ proc main2(aidEvq: ActorId) {.actor.} =
 
 proc go() =
   var pool = newPool(2)
-  let evqInfo = newEvq(pool)
+  let evqId = newEvq(pool)
 
-  discard pool.hatch main()
-  discard pool.hatch main2(evqInfo.actorId)
+  #discard pool.hatch main()
+  discard pool.hatch main2(evqId)
 
   pool.join()
 

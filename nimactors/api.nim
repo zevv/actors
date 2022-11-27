@@ -100,5 +100,5 @@ proc self*(actor: Actor): ActorId {.cpsVoodoo.} =
 # Register a signaling file descriptor for this actors mailbox
 
 proc setMailboxFd*(actor: Actor, fd: cint) {.cpsVoodoo.} =
-  actor.pool.mailhub.setSignalFd(actor.id, fd)
+  actor.pool.setMailboxFd(actor.id, fd)
 

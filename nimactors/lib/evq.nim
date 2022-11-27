@@ -20,9 +20,9 @@ type
 
   EvqInfo = ref object
     actorId*: ActorId
-    fdWake*: cint
 
   Evq* = ref object
+    fdWake: cint
     epfd: cint
     ios: Table[cint, Io]
     pool: ptr Pool
@@ -83,29 +83,25 @@ proc handleMessage(evq: Evq) {.actor.} =
 # mailbox. This is done by adding a pipe-to-self, which is written by the
 # send() when a message is posted to the mailbox
 
-proc evqActor(fdWake: cint, fdWake2: cint) {.actor.} =
-
-  setMailboxFd(fdWake2)
-
-  var evq = Evq(
-    epfd: epoll_create(1)
-  )
-
-  var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: fdWake.uint64))
-  discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fdWake.cint, ee.addr)
+proc evqActor(evq: Evq) {.actor.} =
+  
+  var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: evq.fdWake.uint64))
+  discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, evq.fdWake.cint, ee.addr)
 
   while true:
 
     var es: array[8, EpollEvent]
     let n = epoll_wait(evq.epfd, es[0].addr, es.len.cint, 1000)
+    
+    echo "loop pool: ", n
 
     var i = 0
     while i < n:
       let fd = es[i].data.u64.cint
 
-      if fd == fdWake:
+      if fd == evq.fdWake:
         var b: char
-        discard posix.read(fdWake, b.addr, 1)
+        discard posix.read(evq.fdWake, b.addr, 1)
         handleMessage(evq)
 
       elif fd in evq.ios:
@@ -133,12 +129,18 @@ proc delFd*(actor: Actor, id: ActorId, fd: cint) {.cpsVoodoo.} =
   send(actor.pool, actor.id, id, msg)
 
 
-proc newEvq*(pool: ref Pool): EvqInfo =
-
+proc newEvq*(pool: ref Pool | ptr Pool): ActorId =
+  
   var fds: array[2, cint]
   discard pipe(fds)
+  
+  var evq = Evq(
+    epfd: epoll_create(1),
+    fdWake: fds[0]
+  )
 
-  new result
-  result.actorId = pool.hatch evqActor(fds[0], fds[1])
-  result.fdWake = fds[1]
+  let id = pool.hatch evqActor(evq)
+  pool.setMailboxFd(id, fds[1])
+
+  id
 
