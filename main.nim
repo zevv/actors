@@ -31,7 +31,7 @@ type
 proc calculator() {.actor.} =
 
   while true:
-    os.sleep(10)
+    #os.sleep(10)
     let m = recv()
 
     if m of MsgQuestion:

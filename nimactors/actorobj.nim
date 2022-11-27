@@ -3,6 +3,7 @@
 import std/atomics
 import std/locks
 import std/posix
+import std/strformat
 import std/deques
 
 import isisolated
@@ -124,7 +125,7 @@ proc tryRecv2*(actor: Actor, filter: MailFilter = nil): Message =
 
 proc send*(dst: Actor, src: Actor, msg: sink Message) =
   assertIsolated(msg)
-  #echo &"  send {src} -> {dst}: {msg.repr}"
+  #echo &"  send {src} -> {dst}: {msg}"
   msg.src = src
 
   # Deliver the message in the target mailbox

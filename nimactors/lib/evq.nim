@@ -43,11 +43,6 @@ template `<`(a, b: Timer): bool =
   a.time < b.time
 
 
-proc addFd(evq: EvqImpl, fd: cint) =
-  var ee = EpollEvent(events: POLLIN.uint32 or EPOLLET.uint32, data: EpollData(u64: fd.uint64))
-  discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fd, ee.addr)
-
-
 proc handleMessage(evq: EvqImpl, m: Message) {.actor.} =
 
   if m of MessageEvqAddTimer:
@@ -55,7 +50,9 @@ proc handleMessage(evq: EvqImpl, m: Message) {.actor.} =
     evq.timers.push Timer(actorId: m.src, time: evq.now + interval)
 
   elif m of MessageEvqAddFd:
-    evq.addFd m.MessageEvqAddFd.fd
+    let fd = m.MessageEvqAddFd.fd
+    var ee = EpollEvent(events: POLLIN.uint32 or EPOLLET.uint32, data: EpollData(u64: fd.uint64))
+    discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fd, ee.addr)
     let io = Io(kind: iokFd, actorId: m.src)
     evq.ios[m.MessageEvqAddFd.fd] = io
 
@@ -99,13 +96,13 @@ proc evqActor*(fdWake: cint) {.actor.} =
     epfd: epoll_create(1),
   )
   
-  evq.addFd(fdWake)
+  var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: fdWake.uint64))
+  discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fdWake, ee.addr)
   
   while true:
         
     var es: array[8, EpollEvent]
     let timeout = evq.calculateTimeout()
-    #echo "timeout ", timeout
     let n = epoll_wait(evq.epfd, es[0].addr, es.len.cint, timeout)
 
     evq.now = getMonoTime().ticks.float / 1.0e9
