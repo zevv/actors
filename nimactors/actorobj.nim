@@ -92,3 +92,8 @@ proc `$`*(m: Message): string =
   else:
     return "nil"
 
+proc link*(a, b: Actor) =
+  withLock a:
+    a[].links.add b
+  withLock b:
+    b[].links.add a

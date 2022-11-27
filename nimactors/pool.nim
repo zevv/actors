@@ -209,7 +209,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       actor.exit(erNormal)
       
 
-proc hatchAux*(pool: ref Pool | ptr Pool, c: sink ActorCont, parent=Actor(), link=false): Actor =
+proc hatchAux*(pool: ref Pool | ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =
 
   assert not isNil(c)
   assertIsolated(c)
@@ -224,8 +224,8 @@ proc hatchAux*(pool: ref Pool | ptr Pool, c: sink ActorCont, parent=Actor(), lin
   c.pool = pool[].addr
   c.actor = actor
 
-  if link:
-    actor[].links.add parent
+  if linked:
+    link(actor, parent)
  
   pool.actorCount += 1
 

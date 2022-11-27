@@ -139,6 +139,7 @@ proc readFd(evq: Evq, fd: cint): string {.actor.} =
 proc main2() {.actor.} =
   
   let evq = newEvq()
+  link(self(), evq.actor)
   
   #let id = hatch ticker(evq)
 
@@ -153,9 +154,6 @@ proc main2() {.actor.} =
     echo "=== ", l
     if l.contains("boom"):
       raise newException(IOError, "flap")
-
-  echo "main2 done, killing ", evq.actor
-  kill(evq.actor)
 
 
 proc foo() {.actor.} =

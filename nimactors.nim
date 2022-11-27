@@ -6,6 +6,7 @@ import nimactors/actorobj
 export ExitReason
 export Actor
 export Message
+export link
 
 import nimactors/pool
 export ActorCont
