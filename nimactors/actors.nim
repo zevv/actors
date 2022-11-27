@@ -24,8 +24,8 @@ type
 
   Pool* = object
 
-    # Used to assign unique ActorIds
-    actorIdCounter: Atomic[int]
+    # Used to assign unique Actors
+    actorPidCounter: Atomic[int]
 
     # All workers in the pool. No lock needed, only main thread touches this
     workers: seq[ref Worker]
@@ -34,29 +34,30 @@ type
     workLock: Lock
     stop: bool
     workCond: Cond
-    workQueue: Deque[Actor] # actor that needs to be run asap on any worker
-    idleQueue: Table[ActorId, Actor] # actor that is waiting for messages
-    killReq: Table[ActorId, bool]
+    workQueue: Deque[ActorCond] # actor that needs to be run asap on any worker
+    idleQueue: Table[Actor, ActorCond] # actor that is waiting for messages
+    killReq: Table[Actor, bool]
 
     infoLock: Lock
-    infoTable: Table[ActorId, bool]
+    infoTable: Table[Actor, bool]
 
-  Actor* = ref object of Continuation
-    id*: ActorId
+  ActorCond* = ref object of Continuation
+    id*: Actor
     pool*: ptr Pool
 
-  Object* = object
-    id*: ActorId
-    idParent*: ActorId
+  ActorObject* = object
+    id*: Actor
+    pid*: int
+    idParent*: Actor
     rc*: Atomic[int]
 
     lock: Lock
-    links: seq[ActorId]
+    links: seq[Actor]
     mailBox: Deque[Message]
     signalFd: cint
 
-  ActorId* = object
-    p*: ptr Object
+  Actor* = object
+    p*: ptr ActorObject
 
   Worker = object
     id: int
@@ -67,36 +68,51 @@ type
     erNormal, erKilled, erError
   
   Message* = ref object of Rootobj
-    src*: ActorId
+    src*: Actor
 
   MessageKill* = ref object of Message
   
   MessageExit* = ref object of Message
-    id*: ActorId
+    id*: Actor
     reason*: ExitReason
     ex*: ref Exception
 
   MailFilter* = proc(msg: Message): bool
 
 
-proc `=copy`*(dest: var ActorId, ai: ActorId) =
+
+proc `$`*(a: Actor): string =
+  if not a.p.isNil:
+    "actor." & $a.p[].pid
+  else:
+    "actor.nil"
+
+
+template log(a: Actor, msg: string) =
+  #echo "\e[1;35m" & $a & ": " & msg & "\e[0m"
+  discard
+
+
+proc `=copy`*(dest: var Actor, ai: Actor) =
   if not ai.p.isNil:
-    #echo "ai: rc ++"
     ai.p[].rc.atomicInc()
+    ai.log("rc ++ " & $ai.p[].rc.load())
+  doAssert dest.p.isNil
   dest.p = ai.p
 
-proc `=destroy`*(ai: var ActorId) =
+
+proc `=destroy`*(ai: var Actor) =
   if not ai.p.isNil:
     if ai.p[].rc.load(moAcquire) == 0:
-      #echo "ai: destroy"
+      ai.log("destroy")
       `=destroy`(ai.p[])
       deallocShared(ai.p)
     else:
-      #echo "ai: rc --"
       ai.p[].rc.atomicDec()
+      ai.log("rc -- " & $ai.p[].rc.load())
 
 
-proc `[]`*(ai: ActorId): var Object =
+proc `[]`*(ai: Actor): var ActorObject =
   assert not ai.p.isNil
   ai.p[]
 
@@ -108,13 +124,14 @@ proc `$`*(m: Message): string =
     return "nil"
 
 
-proc newActorId*(): ActorId =
-  result.p = create(Object)
+proc newActor*(): Actor =
+  result.p = create(ActorObject)
   #echo "ai: new ", cast[int](result.p)
   result.p[].rc.store(0)
+  result.log("new")
 
 
-template withInfo(pool: ptr Pool, id: ActorId, code: untyped) =
+template withInfo(pool: ptr Pool, id: Actor, code: untyped) =
   var info {.inject.} = id
 
   if not info.p.isNil:
@@ -126,7 +143,7 @@ template withInfo(pool: ptr Pool, id: ActorId, code: untyped) =
 
 # Forward declerations
 
-proc kill*(pool: ptr Pool, id: ActorId)
+proc kill*(pool: ptr Pool, id: Actor)
 
 
 # Misc helpers
@@ -134,8 +151,8 @@ proc kill*(pool: ptr Pool, id: ActorId)
 proc `$`*(pool: ref Pool): string =
   return "#POOL<>"
 
-proc `$`*(a: Actor): string =
-  return "#ACT<" & $cast[int](a.addr) & ">"
+proc `$`*(a: ActorCond): string =
+  return "#ACT<" & $(a.id.p[].id) & ">"
 
 proc `$`*(worker: ref Worker | ptr Worker): string =
   return "#WORKER<" & $worker.id & ">"
@@ -143,7 +160,7 @@ proc `$`*(worker: ref Worker | ptr Worker): string =
 
 # Misc helper procs
 
-proc pass*(cFrom, cTo: Actor): Actor =
+proc pass*(cFrom, cTo: ActorCond): ActorCond =
   cTo.pool = cFrom.pool
   cTo.id = cFrom.id
   cTo
@@ -151,7 +168,7 @@ proc pass*(cFrom, cTo: Actor): Actor =
 
 # Send a message from srcId to dstId
 
-proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
+proc send*(pool: ptr Pool, srcId, dstId: Actor, msg: sink Message) =
   assertIsolated(msg)
   #echo &"  send {srcId} -> {dstId}: {msg.repr}"
   msg.src = srcId
@@ -177,7 +194,7 @@ proc send*(pool: ptr Pool, srcId, dstId: ActorId, msg: sink Message) =
 
 # Receive a message
 
-proc tryRecv*(pool: ptr Pool, id: ActorId, filter: MailFilter = nil): Message =
+proc tryRecv*(pool: ptr Pool, id: Actor, filter: MailFilter = nil): Message =
   pool.withInfo id:
     var first = true
     for msg in info[].mailbox.mitems:
@@ -192,14 +209,14 @@ proc tryRecv*(pool: ptr Pool, id: ActorId, filter: MailFilter = nil): Message =
   #echo &"  tryRecv {id}: {result}"
 
 
-proc setSignalFd*(pool: ptr Pool, id: ActorId, fd: cint) =
+proc setSignalFd*(pool: ptr Pool, id: Actor, fd: cint) =
   pool.withInfo id:
     info[].signalFd = fd
 
 # Signal termination of an actor; inform the parent and kill any linked
 # actors.
 
-proc exit(actor: sink Actor, reason: ExitReason, ex: ref Exception = nil) =
+proc exit(actor: sink ActorCond, reason: ExitReason, ex: ref Exception = nil) =
   #assertIsolated(actor)  # TODO: cps refs child
 
   echo &"Actor {actor.id} terminated, reason: {reason}"
@@ -211,12 +228,14 @@ proc exit(actor: sink Actor, reason: ExitReason, ex: ref Exception = nil) =
 
   pool.withInfo actor.id:
   
-    pool.send(ActorId(), info[].idParent,
+    pool.send(Actor(), info[].idParent,
               MessageExit(id: actor.id, reason: reason, ex: ex))
 
     for id in info[].links:
       {.cast(gcsafe).}:
         pool.kill(id)
+    
+    reset info[].idParent
 
   withLock pool.infoLock:
     pool.infoTable.del(actor.id)
@@ -224,18 +243,18 @@ proc exit(actor: sink Actor, reason: ExitReason, ex: ref Exception = nil) =
 
 # Kill an actor
 
-proc kill*(pool: ptr Pool, id: ActorId) =
+proc kill*(pool: ptr Pool, id: Actor) =
   withLock pool.workLock:
     # Mark the actor as to-be-killed so it will be caught before trampolining
     # or when jielding
     pool.killReq[id] = true
     # Send the actor a message so it will wake up if it is in the idle pool
-  pool.send(ActorId(), id, MessageKill())
+  pool.send(Actor(), id, MessageKill())
 
 
 # Move actor to the idle queue
 
-proc toIdleQueue*(pool: ptr Pool, actor: sink Actor) =
+proc toIdleQueue*(pool: ptr Pool, actor: sink ActorCond) =
   #assertIsolated(actor) # TODO
   var killed = false
   withLock pool.workLock:
@@ -249,7 +268,7 @@ proc toIdleQueue*(pool: ptr Pool, actor: sink Actor) =
     exit(actor, erKilled)
 
 
-proc waitForWork(pool: ptr Pool): Actor =
+proc waitForWork(pool: ptr Pool): ActorCond =
   while true:
     withLock pool.workLock:
 
@@ -286,7 +305,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       try:
         {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
           while not actor.isNil and not actor.fn.isNil:
-            actor = actor.fn(actor).Actor
+            actor = actor.fn(actor).ActorCond
       except:
         actor.exit(erError, getCurrentException())
 
@@ -296,42 +315,43 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       actor.exit(erNormal)
       
 
-proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, idParent=ActorId(), link=false): ActorId =
+proc hatchAux*(pool: ref Pool | ptr Pool, ac: sink ActorCond, idParent=Actor(), link=false): Actor =
 
-  assert not isNil(actor)
-  assertIsolated(actor)
+  assert not isNil(ac)
+  assertIsolated(ac)
 
-  pool.actorIdCounter += 1
-  #let id = pool.actorIdCounter.load().ActorID
+  pool.actorPidCounter += 1
+  let pid = pool.actorPidCounter.load()
   
-  let info = newActorId()
-  info[].idParent = idParent
-  info[].lock.initLock()
+  let actor = newActor()
+  actor[].idParent = idParent
+  actor[].lock.initLock()
+  actor[].pid = pid
 
   # Initialize actor
-  actor.pool = pool[].addr
-  actor.id = info
+  ac.pool = pool[].addr
+  ac.id = actor
   
 
   if link:
-    info[].links.add idParent
+    actor[].links.add idParent
   
   withLock pool.infoLock:
-    pool.infoTable[info] = true
+    pool.infoTable[actor] = true
 
   # Add the new actor to the work queue
   withLock pool.workLock:
-    assertIsolated(actor)
-    pool.workQueue.addLast actor
+    assertIsolated(ac)
+    pool.workQueue.addLast ac
     pool.workCond.signal()
 
-  info
+  actor
 
 
 # Create and initialize a new actor
 
-template hatch*(pool: ref Pool, c: typed): ActorId =
-  var actor = Actor(whelp c)
+template hatch*(pool: ref Pool, c: typed): Actor =
+  var actor = ActorCond(whelp c)
   hatchAux(pool, actor)
 
 

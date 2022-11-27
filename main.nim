@@ -45,7 +45,7 @@ proc calculator() {.actor.} =
   echo "calculator is done"
 
 
-proc bob(idCalculator: ActorId, count: int) {.actor.} =
+proc bob(idCalculator: Actor, count: int) {.actor.} =
 
   var i = 0
 
@@ -158,20 +158,22 @@ proc main2() {.actor.} =
   kill(evq.id)
 
 
-proc foo(id: ActorId) {.actor.} =
-
-  send(id, Message())
+proc foo() {.actor.} =
+  echo "foo"
+  #send(id, Message())
 
 proc main3() {.actor.} =
 
-  let i = hatch foo(self())
-  let m = recv()
+  echo "main3"
+  let i = hatch foo()
+  #let i = hatch foo(self())
+  #let m = recv()
 
 proc go() =
   var pool = newPool(2)
 
-  #discard pool.hatch main()
-  #discard pool.hatch main2()
+  discard pool.hatch main()
+  discard pool.hatch main2()
   discard pool.hatch main3()
 
   pool.join()

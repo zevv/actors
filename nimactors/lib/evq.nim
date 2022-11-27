@@ -18,14 +18,14 @@ type
 
   Timer = object
     time: float
-    actorId: ActorId
+    actorId: Actor
 
   IoKind = enum
     iokTimer, iokFd
 
   Io = ref object
     kind: IoKind
-    actorId: ActorId
+    actorId: Actor
 
   MessageEvqAddTimer* = ref object of Message
     interval: float
@@ -135,18 +135,18 @@ proc evqActor*(fdWake: cint) {.actor.} =
 type
 
   Evq* = ref object
-    id*: ActorId
+    id*: Actor
 
 
-proc addTimer*(actor: Actor, evq: Evq, interval: float) {.cpsVoodoo.} =
+proc addTimer*(actor: ActorCond, evq: Evq, interval: float) {.cpsVoodoo.} =
   send(actor.pool, actor.id, evq.id, MessageEvqAddTimer(interval: interval))
 
 
-proc addFd*(actor: Actor, evq: Evq, fd: cint) {.cpsVoodoo.} =
+proc addFd*(actor: ActorCond, evq: Evq, fd: cint) {.cpsVoodoo.} =
   send(actor.pool, actor.id, evq.id, MessageEvqAddFd(fd: fd))
 
 
-proc delFd*(actor: Actor, evq: Evq, fd: cint) {.cpsVoodoo.} =
+proc delFd*(actor: ActorCond, evq: Evq, fd: cint) {.cpsVoodoo.} =
   send(actor.pool, actor.id, evq.id, MessageEvqDelFd(fd: fd))
 
 
