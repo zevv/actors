@@ -100,21 +100,18 @@ proc setSignalFd*(pool: ptr Pool, actor: Actor, fd: cint) =
 # Signal termination of an actor; inform the parent and kill any linked
 # actors.
 
-proc exit(c: sink ActorCont, reason: ExitReason, ex: ref Exception = nil) =
+proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = nil) =
   #assertIsolated(c)  # TODO: cps refs child
 
-  echo &"Actor {c.actor} terminated, reason: {reason}"
+  echo &"Actor {actor} terminated, reason: {reason}"
   if not ex.isNil:
     echo "Exception: ", ex.msg
     echo ex.getStackTrace()
 
-  let pool = c.pool
-  let actor = c.actor
-
   withLock actor:
   
     pool.send(Actor(), actor[].parent,
-              MessageExit(id: c.actor, reason: reason, ex: ex))
+              MessageExit(id: actor, reason: reason, ex: ex))
 
     for id in actor[].links:
       {.cast(gcsafe).}:
@@ -149,7 +146,7 @@ proc toIdleQueue*(pool: ptr Pool, c: sink ActorCont) =
       pool.idleQueue[c.actor] = c
 
   if killed:
-    exit(c, erKilled)
+    pool.exit(c.actor, erKilled)
 
 
 proc waitForWork(pool: ptr Pool): ActorCont =
@@ -175,28 +172,28 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     # Wait for actor or stop request
 
     bitline.logStart(wid & ".wait")
-    var actor = pool.waitForWork()
+    var c = pool.waitForWork()
     bitline.logStop(wid & ".wait")
     
-    if actor.isNil:
+    if c.isNil:
       break
     
-    #assertIsolated(actor)  # TODO: cps refs child
+    #assertIsolated(c)  # TODO: cps refs child
 
     # Trampoline the continuation
 
     bitline.log "worker." & $worker.id & ".run":
       try:
         {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
-          while not actor.isNil and not actor.fn.isNil:
-            actor = actor.fn(actor).ActorCont
+          while not c.isNil and not c.fn.isNil:
+            c = c.fn(c).ActorCont
       except:
-        actor.exit(erError, getCurrentException())
+        pool.exit(c.actor, erError, getCurrentException())
 
     # Cleanup if continuation has finished
 
-    if actor.finished:
-      actor.exit(erNormal)
+    if c.finished:
+      pool.exit(c.actor, erNormal)
       
 
 proc hatchAux*(pool: ref Pool | ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =
