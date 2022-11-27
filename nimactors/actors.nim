@@ -14,6 +14,7 @@ import cps
 import bitline
 import isisolated
 import mallinfo
+import actorobj
 
 
 # FFI for glib mallinfo()
@@ -24,6 +25,7 @@ type
 
     # Used to assign unique Actors
     actorPidCounter: Atomic[int]
+    actorCount: Atomic[int]
 
     # All workers in the pool. No lock needed, only main thread touches this
     workers: seq[ref Worker]
@@ -36,90 +38,16 @@ type
     idleQueue: Table[Actor, ActorCont] # actor that is waiting for messages
     killReq: Table[Actor, bool]
 
-    actorsLock: Lock
-    actors: Table[Actor, bool]
-
   ActorCont* = ref object of Continuation
     actor*: Actor
     pool*: ptr Pool
-
-  ActorObject* = object
-    rc*: Atomic[int]
-    pid*: int
-    parent*: Actor
-
-    lock: Lock
-    links: seq[Actor]
-    mailBox: Deque[Message]
-    signalFd: cint
-
-  Actor* = object
-    p*: ptr ActorObject
 
   Worker = object
     id: int
     thread: Thread[ptr Worker]
     pool: ptr Pool
 
-  ExitReason* = enum
-    erNormal, erKilled, erError
-  
-  Message* = ref object of Rootobj
-    src*: Actor
-
-  MessageKill* = ref object of Message
-  
-  MessageExit* = ref object of Message
-    id*: Actor
-    reason*: ExitReason
-    ex*: ref Exception
-
   MailFilter* = proc(msg: Message): bool
-
-
-template log(a: Actor, msg: string) =
-  #echo "\e[1;35m" & $a & ": " & msg & "\e[0m"
-  discard
-
-
-proc `=copy`*(dest: var Actor, ai: Actor) =
-  if not ai.p.isNil:
-    ai.p[].rc.atomicInc()
-    ai.log("rc ++ " & $ai.p[].rc.load())
-  doAssert dest.p.isNil
-  dest.p = ai.p
-
-
-proc `=destroy`*(ai: var Actor) =
-  if not ai.p.isNil:
-    if ai.p[].rc.load(moAcquire) == 0:
-      ai.log("destroy")
-      `=destroy`(ai.p[])
-      deallocShared(ai.p)
-    else:
-      ai.p[].rc.atomicDec()
-      ai.log("rc -- " & $ai.p[].rc.load())
-
-
-proc `[]`*(ai: Actor): var ActorObject =
-  assert not ai.p.isNil
-  ai.p[]
-
-
-
-proc newActor*(): Actor =
-  result.p = create(ActorObject)
-  #echo "ai: new ", cast[int](result.p)
-  result.p[].rc.store(0)
-  result.log("new")
-
-
-template withLock(actor: Actor, code: untyped) =
-  if not actor.p.isNil:
-    withLock actor[].lock:
-      code
-  else:
-    echo "empty actor"
 
 
 # Forward declerations
@@ -128,18 +56,6 @@ proc kill*(pool: ptr Pool, id: Actor)
 
 
 # Stringifications
-
-proc `$`*(a: Actor): string =
-  if not a.p.isNil:
-    "actor." & $a.p[].pid
-  else:
-    "actor.nil"
-
-proc `$`*(m: Message): string =
-  if not m.isNil:
-    return "msg"
-  else:
-    return "nil"
 
 proc `$`*(pool: ref Pool): string =
   return "pool"
@@ -186,22 +102,6 @@ proc send*(pool: ptr Pool, src, dst: Actor, msg: sink Message) =
       pool.workCond.signal()
 
 
-# Receive a message
-
-proc tryRecv*(pool: ptr Pool, actor: Actor, filter: MailFilter = nil): Message =
-  withLock actor:
-    var first = true
-    for msg in actor[].mailbox.mitems:
-      if not msg.isNil and (filter.isNil or filter(msg)):
-        result = msg
-        if first:
-          actor[].mailbox.popFirst()
-        else:
-          msg = nil
-        break
-      first = false
-  #echo &"  tryRecv {id}: {result}"
-
 
 proc setSignalFd*(pool: ptr Pool, actor: Actor, fd: cint) =
   withLock actor:
@@ -232,8 +132,7 @@ proc exit(c: sink ActorCont, reason: ExitReason, ex: ref Exception = nil) =
     
     reset actor[].parent
 
-  withLock pool.actorsLock:
-    pool.actors.del(c.actor)
+  pool.actorCount -= 1
 
 
 # Kill an actor
@@ -316,23 +215,19 @@ proc hatchAux*(pool: ref Pool | ptr Pool, c: sink ActorCont, parent=Actor(), lin
   assertIsolated(c)
 
   pool.actorPidCounter += 1
-  let pid = pool.actorPidCounter.load()
   
   let actor = newActor()
   actor[].parent = parent
   actor[].lock.initLock()
-  actor[].pid = pid
+  actor[].pid = pool.actorPidCounter.load()
 
-  # Initialize actor
   c.pool = pool[].addr
   c.actor = actor
-  
 
   if link:
     actor[].links.add parent
-  
-  withLock pool.actorsLock:
-    pool.actors[actor] = true
+ 
+  pool.actorCount += 1
 
   # Add the new actor to the work queue
   withLock pool.workLock:
@@ -357,7 +252,6 @@ proc newPool*(nWorkers: int): ref Pool =
   var pool = new Pool
   initLock pool.workLock
   initCond pool.workCond
-  initLock pool.actorsLock
 
   for i in 0..<nWorkers:
     var worker = new Worker
@@ -374,13 +268,13 @@ proc newPool*(nWorkers: int): ref Pool =
 proc join*(pool: ref Pool) =
 
   while true:
-    withLock pool.actorsLock:
-      if pool.actors.len == 0:
+    let n = pool.actorCount.load()
+    let mi = mallinfo2()
+    bitline.logValue("stats.actors", n)
+    bitline.logValue("stats.mem_alloc", mi.uordblks)
+    bitline.logValue("stats.mem_arena", mi.arena)
+    if n == 0:
         break
-      let mi = mallinfo2()
-      bitline.logValue("stats.actors", pool.actors.len)
-      bitline.logValue("stats.mem_alloc", mi.uordblks)
-      bitline.logValue("stats.mem_arena", mi.arena)
     os.sleep(10)
 
   echo "all actors gone"

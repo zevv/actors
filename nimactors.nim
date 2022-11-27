@@ -2,10 +2,14 @@
 import cps
 export cps
 
+import nimactors/actorobj
+export ExitReason
+export Actor
+export Message
+
 import nimactors/actors
 export ActorCont
 export actors
-export ExitReason
 export hatch
 export hatchAux
 export join
