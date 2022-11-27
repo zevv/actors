@@ -108,17 +108,20 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
     echo "Exception: ", ex.msg
     echo ex.getStackTrace()
 
-  withLock actor:
-  
-    pool.send(Actor(), actor[].parent,
-              MessageExit(id: actor, reason: reason, ex: ex))
+  var parent: Actor
+  var links: seq[Actor]
 
-    for id in actor[].links:
-      {.cast(gcsafe).}:
-        pool.kill(id)
+  withLock actor:
+    parent = move actor[].parent
+    links = move actor[].links
+  
+  pool.send(Actor(), parent,
+            MessageExit(id: actor, reason: reason, ex: ex))
+
+  for id in links:
+    {.cast(gcsafe).}:
+      pool.kill(id)
     
-    reset actor[].parent
-    reset actor[].links
 
   pool.actorCount -= 1
 
