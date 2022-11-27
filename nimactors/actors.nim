@@ -3,7 +3,6 @@ import os
 import strformat
 import std/macros
 import std/locks
-import std/rlocks
 import std/deques
 import std/tables
 import std/posix
@@ -13,7 +12,6 @@ import std/times
 import cps
 
 import bitline
-import actorid
 import isisolated
 import mallinfo
 

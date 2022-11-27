@@ -4,7 +4,6 @@ import std/macros
 
 import cps
 
-import actorid
 import actors
 import isisolated
  
