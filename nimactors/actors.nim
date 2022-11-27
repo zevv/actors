@@ -46,10 +46,9 @@ type
     pool*: ptr Pool
 
   ActorObject* = object
-    id*: Actor
-    pid*: int
-    idParent*: Actor
     rc*: Atomic[int]
+    pid*: int
+    parent*: Actor
 
     lock: Lock
     links: seq[Actor]
@@ -78,14 +77,6 @@ type
     ex*: ref Exception
 
   MailFilter* = proc(msg: Message): bool
-
-
-
-proc `$`*(a: Actor): string =
-  if not a.p.isNil:
-    "actor." & $a.p[].pid
-  else:
-    "actor.nil"
 
 
 template log(a: Actor, msg: string) =
@@ -117,12 +108,6 @@ proc `[]`*(ai: Actor): var ActorObject =
   ai.p[]
 
 
-proc `$`*(m: Message): string =
-  if not m.isNil:
-    return "#MSG"
-  else:
-    return "nil"
-
 
 proc newActor*(): Actor =
   result.p = create(ActorObject)
@@ -144,16 +129,28 @@ template withLock(actor: Actor, code: untyped) =
 proc kill*(pool: ptr Pool, id: Actor)
 
 
-# Misc helpers
+# Stringifications
+
+proc `$`*(a: Actor): string =
+  if not a.p.isNil:
+    "actor." & $a.p[].pid
+  else:
+    "actor.nil"
+
+proc `$`*(m: Message): string =
+  if not m.isNil:
+    return "msg"
+  else:
+    return "nil"
 
 proc `$`*(pool: ref Pool): string =
-  return "#POOL<>"
+  return "pool"
 
 proc `$`*(a: ActorCond): string =
-  return "#ACT<" & $(a.id.p[].id) & ">"
+  return "actorcond." & $(a.id.p[].pid)
 
 proc `$`*(worker: ref Worker | ptr Worker): string =
-  return "#WORKER<" & $worker.id & ">"
+  return "worker." & $worker.id
 
 
 # Misc helper procs
@@ -227,14 +224,14 @@ proc exit(c: sink ActorCond, reason: ExitReason, ex: ref Exception = nil) =
 
   withLock actor:
   
-    pool.send(Actor(), actor[].idParent,
+    pool.send(Actor(), actor[].parent,
               MessageExit(id: c.id, reason: reason, ex: ex))
 
     for id in actor[].links:
       {.cast(gcsafe).}:
         pool.kill(id)
     
-    reset actor[].idParent
+    reset actor[].parent
 
   withLock pool.actorsLock:
     pool.actors.del(c.id)
@@ -314,7 +311,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       actor.exit(erNormal)
       
 
-proc hatchAux*(pool: ref Pool | ptr Pool, ac: sink ActorCond, idParent=Actor(), link=false): Actor =
+proc hatchAux*(pool: ref Pool | ptr Pool, ac: sink ActorCond, parent=Actor(), link=false): Actor =
 
   assert not isNil(ac)
   assertIsolated(ac)
@@ -323,7 +320,7 @@ proc hatchAux*(pool: ref Pool | ptr Pool, ac: sink ActorCond, idParent=Actor(), 
   let pid = pool.actorPidCounter.load()
   
   let actor = newActor()
-  actor[].idParent = idParent
+  actor[].parent = parent
   actor[].lock.initLock()
   actor[].pid = pid
 
@@ -333,7 +330,7 @@ proc hatchAux*(pool: ref Pool | ptr Pool, ac: sink ActorCond, idParent=Actor(), 
   
 
   if link:
-    actor[].links.add idParent
+    actor[].links.add parent
   
   withLock pool.actorsLock:
     pool.actors[actor] = true
