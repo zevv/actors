@@ -34,14 +34,14 @@ type
     workLock: Lock
     stop: bool
     workCond: Cond
-    workQueue: Deque[ActorCond] # actor that needs to be run asap on any worker
-    idleQueue: Table[Actor, ActorCond] # actor that is waiting for messages
+    workQueue: Deque[ActorCont] # actor that needs to be run asap on any worker
+    idleQueue: Table[Actor, ActorCont] # actor that is waiting for messages
     killReq: Table[Actor, bool]
 
     actorsLock: Lock
     actors: Table[Actor, bool]
 
-  ActorCond* = ref object of Continuation
+  ActorCont* = ref object of Continuation
     actor*: Actor
     pool*: ptr Pool
 
@@ -146,7 +146,7 @@ proc `$`*(m: Message): string =
 proc `$`*(pool: ref Pool): string =
   return "pool"
 
-proc `$`*(a: ActorCond): string =
+proc `$`*(a: ActorCont): string =
   return "actorcond." & $(a.actor.p[].pid)
 
 proc `$`*(worker: ref Worker | ptr Worker): string =
@@ -155,7 +155,7 @@ proc `$`*(worker: ref Worker | ptr Worker): string =
 
 # Misc helper procs
 
-proc pass*(cFrom, cTo: ActorCond): ActorCond =
+proc pass*(cFrom, cTo: ActorCont): ActorCont =
   cTo.pool = cFrom.pool
   #cTo.id = cFrom.id
   cTo.actor = cFrom.actor
@@ -212,7 +212,7 @@ proc setSignalFd*(pool: ptr Pool, actor: Actor, fd: cint) =
 # Signal termination of an actor; inform the parent and kill any linked
 # actors.
 
-proc exit(c: sink ActorCond, reason: ExitReason, ex: ref Exception = nil) =
+proc exit(c: sink ActorCont, reason: ExitReason, ex: ref Exception = nil) =
   #assertIsolated(c)  # TODO: cps refs child
 
   echo &"Actor {c.actor} terminated, reason: {reason}"
@@ -251,7 +251,7 @@ proc kill*(pool: ptr Pool, id: Actor) =
 
 # Move actor to the idle queue
 
-proc toIdleQueue*(pool: ptr Pool, c: sink ActorCond) =
+proc toIdleQueue*(pool: ptr Pool, c: sink ActorCont) =
   #assertIsolated(c) # TODO
   var killed = false
   withLock pool.workLock:
@@ -265,7 +265,7 @@ proc toIdleQueue*(pool: ptr Pool, c: sink ActorCond) =
     exit(c, erKilled)
 
 
-proc waitForWork(pool: ptr Pool): ActorCond =
+proc waitForWork(pool: ptr Pool): ActorCont =
   while true:
     withLock pool.workLock:
 
@@ -302,7 +302,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       try:
         {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
           while not actor.isNil and not actor.fn.isNil:
-            actor = actor.fn(actor).ActorCond
+            actor = actor.fn(actor).ActorCont
       except:
         actor.exit(erError, getCurrentException())
 
@@ -312,7 +312,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       actor.exit(erNormal)
       
 
-proc hatchAux*(pool: ref Pool | ptr Pool, c: sink ActorCond, parent=Actor(), link=false): Actor =
+proc hatchAux*(pool: ref Pool | ptr Pool, c: sink ActorCont, parent=Actor(), link=false): Actor =
 
   assert not isNil(c)
   assertIsolated(c)
@@ -348,7 +348,7 @@ proc hatchAux*(pool: ref Pool | ptr Pool, c: sink ActorCond, parent=Actor(), lin
 # Create and initialize a new actor
 
 template hatch*(pool: ref Pool, c: typed): Actor =
-  var actor = ActorCond(whelp c)
+  var actor = ActorCont(whelp c)
   hatchAux(pool, actor)
 
 

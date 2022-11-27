@@ -8,7 +8,7 @@ export cps
 
 import nimactors/actors
 #export newActorInfo
-export ActorCond
+export ActorCont
 export actors
 export ExitReason
 export hatch
