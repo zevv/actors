@@ -138,16 +138,16 @@ type
     id*: Actor
 
 
-proc addTimer*(actor: ActorCond, evq: Evq, interval: float) {.cpsVoodoo.} =
-  send(actor.pool, actor.id, evq.id, MessageEvqAddTimer(interval: interval))
+proc addTimer*(c: ActorCond, evq: Evq, interval: float) {.cpsVoodoo.} =
+  send(c.pool, c.actor, evq.id, MessageEvqAddTimer(interval: interval))
 
 
-proc addFd*(actor: ActorCond, evq: Evq, fd: cint) {.cpsVoodoo.} =
-  send(actor.pool, actor.id, evq.id, MessageEvqAddFd(fd: fd))
+proc addFd*(c: ActorCond, evq: Evq, fd: cint) {.cpsVoodoo.} =
+  send(c.pool, c.actor, evq.id, MessageEvqAddFd(fd: fd))
 
 
-proc delFd*(actor: ActorCond, evq: Evq, fd: cint) {.cpsVoodoo.} =
-  send(actor.pool, actor.id, evq.id, MessageEvqDelFd(fd: fd))
+proc delFd*(c: ActorCond, evq: Evq, fd: cint) {.cpsVoodoo.} =
+  send(c.pool, c.actor, evq.id, MessageEvqDelFd(fd: fd))
 
 
 proc sleep*(evq: Evq, interval: float) {.actor.} =

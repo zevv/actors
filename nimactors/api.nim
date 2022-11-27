@@ -16,26 +16,26 @@ macro actor*(n: untyped): untyped =
 # Move the given actor to the idle queue. It will only be moved aback to the
 # workQueue whenever a new message arrives
 
-proc toIdleQueue*(actor: sink ActorCond): ActorCond {.cpsMagic.} =
-  actor.pool.toIdleQueue(actor)
+proc toIdleQueue*(c: sink ActorCond): ActorCond {.cpsMagic.} =
+  c.pool.toIdleQueue(c)
 
 
 # Receive a message, nonblocking
 
-proc tryRecv*(actor: ActorCond): Message {.cpsVoodoo.} =
-  result = actor.pool.tryRecv(actor.id)
+proc tryRecv*(c: ActorCond): Message {.cpsVoodoo.} =
+  result = c.pool.tryRecv(c.actor)
   if result of MessageKill:
     result = nil # will cause a jield, catching the kill
 
-proc tryRecv*(actor: ActorCond, srcId: Actor): Message {.cpsVoodoo.} =
+proc tryRecv*(c: ActorCond, srcId: Actor): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg.src == srcId
-  result = actor.pool.tryRecv(actor.id, filter)
+  result = c.pool.tryRecv(c.actor, filter)
   if result of MessageKill:
     result = nil # will cause a jield, catching the kill
 
-proc tryRecv*(actor: ActorCond, T: typedesc): Message {.cpsVoodoo.} =
+proc tryRecv*(c: ActorCond, T: typedesc): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg of T
-  result = actor.pool.tryRecv(actor.id, filter)
+  result = c.pool.tryRecv(c.actor, filter)
   if result of MessageKill:
     result = nil # will cause a jield, catching the kill
 
@@ -60,47 +60,47 @@ template recv*(T: typedesc): auto =
 
 # Send a message to another actor
 
-proc send*(actor: ActorCond, dst: Actor, msg: sink Message) {.cpsVoodoo.} =
-  actor.pool.send(actor.id, dst, msg)
+proc send*(c: ActorCond, dst: Actor, msg: sink Message) {.cpsVoodoo.} =
+  c.pool.send(c.actor, dst, msg)
 
 
 # Send a kill message to another actor
 
-proc kill*(actor: ActorCond, dst: Actor) {.cpsVoodoo.} =
-  actor.pool.kill(dst)
+proc kill*(c: ActorCond, dst: Actor) {.cpsVoodoo.} =
+  c.pool.kill(dst)
 
 
 # Hatch an actor from within an actor
 
-proc hatchAux*(actor: ActorCond, newActor: sink ActorCond, link: bool): Actor {.cpsVoodoo.} =
-  actor.pool.hatchAux(newActor, actor.id, link)
+proc hatchAux*(c: ActorCond, newActor: sink ActorCond, link: bool): Actor {.cpsVoodoo.} =
+  c.pool.hatchAux(newActor, c.actor, link)
 
 
 # Hatches the given actor and returns its AID.
 
-template hatch*(c: typed): Actor =
-  let actor = ActorCond(whelp c)
-  hatchAux(actor, false)
+template hatch*(what: typed): Actor =
+  let c = ActorCond(whelp what)
+  hatchAux(c, false)
 
 
 # Hatches the given actor passing, links it to the current process, and returns
 # its PID.
 
-template hatchLinked*(c: typed): Actor =
-  let actor = ActorCond(whelp c)
-  hatchAux(actor, true)
+template hatchLinked*(what: typed): Actor =
+  let c = ActorCond(whelp what)
+  hatchAux(c, true)
 
 
 # Returns the AID of the calling actor
 
-proc self*(actor: ActorCond): Actor {.cpsVoodoo.} =
-  actor.id
+proc self*(c: ActorCond): Actor {.cpsVoodoo.} =
+  c.actor
 
 # Register a signaling file descriptor for this actors mailbox
 
-proc setMailboxFd*(actor: ActorCond, fd: cint) {.cpsVoodoo.} =
-  actor.pool.setSignalFd(actor.id, fd)
+proc setMailboxFd*(c: ActorCond, fd: cint) {.cpsVoodoo.} =
+  c.pool.setSignalFd(c.actor, fd)
 
-proc setMailboxFd*(actor: ActorCond, id: Actor, fd: cint) {.cpsVoodoo.} =
-  actor.pool.setSignalFd(id, fd)
+proc setMailboxFd*(c: ActorCond, id: Actor, fd: cint) {.cpsVoodoo.} =
+  c.pool.setSignalFd(id, fd)
 
