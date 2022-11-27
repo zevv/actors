@@ -78,12 +78,11 @@ proc setSignalFd*(mailhub: var Mailhub, id: ActorId, fd: cint) =
 proc sendTo*(mailhub: var Mailhub, srcId, dstId: ActorID, msg: sink Message) =
   assertIsolated(msg)
   msg.src = srcId
-  echo &"  send {srcId} -> {dstId}: {msg.repr}"
+  #echo &"  send {srcId} -> {dstId}: {msg.repr}"
   mailhub.withMailbox(dstId):
 
     mailbox.queue.addLast(msg)
 
-    echo "send ", mailbox.signalFd
     if mailbox.signalFd != 0.cint:
       let b: char = 'x'
       discard posix.write(mailbox.signalFd, b.addr, 1)

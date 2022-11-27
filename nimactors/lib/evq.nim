@@ -88,39 +88,23 @@ proc handleMessage(evq: Evq, m: Message) {.actor.} =
 # mailbox. This is done by adding a pipe-to-self, which is written by the
 # send() when a message is posted to the mailbox
 
-proc newEvq*() {.actor.} =
+proc evqActor*(evq: Evq) {.actor.} =
   
-  var fds: array[2, cint]
-  discard pipe(fds)
-  
-  var evq = Evq(
-    epfd: epoll_create(1),
-    fdWake: fds[0]
-  )
-
-  setMailboxFd(fds[1])
-  evq.addFd(evq.fdWake)
-
   while true:
         
-    echo "prepoll"
     var es: array[8, EpollEvent]
     let n = epoll_wait(evq.epfd, es[0].addr, es.len.cint, -1)
     
-    echo "poll: ", n
-
     var i = 0
     while i < n:
       let fd = es[i].data.u64.cint
 
       if fd == evq.fdWake:
-        echo "fdwake"
         var b: char
         discard posix.read(evq.fdWake, b.addr, 1)
         evq.handleMessage recv()
 
       elif fd in evq.ios:
-        echo "fdio"
         let io = evq.ios[fd]
         if io.kind == iokTimer:
           var data: uint64
@@ -145,8 +129,21 @@ proc delFd*(actor: Actor, id: ActorId, fd: cint) {.cpsVoodoo.} =
   send(actor.pool, actor.id, id, msg)
 
 
-proc newEvq*(pool: ref Pool | ptr Pool): ActorId =
-  pool.hatch evqActor()
+proc newEvq*(): ActorId {.actor.} =
+
+  var fds: array[2, cint]
+  discard pipe(fds)
+  
+  var evq = Evq(
+    epfd: epoll_create(1),
+    fdWake: fds[0]
+  )
+  
+  evq.addFd(evq.fdWake)
+
+  let id = hatch evqActor(evq)
+  setMailboxFd(id, fds[1])
+  id
 
 
 

@@ -136,7 +136,7 @@ proc readFd(aidEvq: ActorID, fd: cint): string {.actor.} =
 
 proc main2() {.actor.} =
   
-  let aidEvq = hatchLinked newEvq()
+  let aidEvq = newEvq()
 
   #let id = hatch ticker()
 
