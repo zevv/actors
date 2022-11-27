@@ -5,7 +5,7 @@ import std/deques
 
 import cps
 
-import actors
+import pool
 import actorobj
 import isisolated
  

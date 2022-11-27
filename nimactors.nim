@@ -7,9 +7,8 @@ export ExitReason
 export Actor
 export Message
 
-import nimactors/actors
+import nimactors/pool
 export ActorCont
-export actors
 export hatch
 export hatchAux
 export join
