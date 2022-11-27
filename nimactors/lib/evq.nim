@@ -10,7 +10,6 @@ import ../../nimactors
 type
 
   EvqImpl = ref object
-    fdWake: cint
     epfd: cint
     ios: Table[cint, Io]
     pool: ptr Pool
@@ -45,7 +44,7 @@ template `<`(a, b: Timer): bool =
 
 
 proc addFd(evq: EvqImpl, fd: cint) =
-  var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: fd.uint64))
+  var ee = EpollEvent(events: POLLIN.uint32 or EPOLLET.uint32, data: EpollData(u64: fd.uint64))
   discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fd, ee.addr)
 
 
@@ -72,6 +71,7 @@ proc handleMessage(evq: EvqImpl, m: Message) {.actor.} =
 proc updateNow(evq: EvqImpl) =
     evq.now = getMonoTime().ticks.float / 1.0e9
 
+
 proc calculateTimeout(evq: EvqImpl): cint =
   evq.updateNow()
   result = -1
@@ -85,6 +85,7 @@ proc handleTimers(evq: EvqImpl) {.actor.} =
   evq.updateNow()
   while evq.timers.len > 0 and evq.timers[0].time <= evq.now:
     let t = evq.timers.pop
+    #echo "Expired, send ", t.actorId
     send(t.actorId, MessageEvqEvent())
 
 
@@ -92,12 +93,19 @@ proc handleTimers(evq: EvqImpl) {.actor.} =
 # mailbox. This is done by adding a pipe-to-self, which is written by the
 # send() when a message is posted to the mailbox
 
-proc evqActor*(evq: EvqImpl) {.actor.} =
+proc evqActor*(fdWake: cint) {.actor.} =
+  
+  var evq = EvqImpl(
+    epfd: epoll_create(1),
+  )
+  
+  evq.addFd(fdWake)
   
   while true:
         
     var es: array[8, EpollEvent]
     let timeout = evq.calculateTimeout()
+    #echo "timeout ", timeout
     let n = epoll_wait(evq.epfd, es[0].addr, es.len.cint, timeout)
 
     evq.now = getMonoTime().ticks.float / 1.0e9
@@ -107,9 +115,9 @@ proc evqActor*(evq: EvqImpl) {.actor.} =
     while i < n:
       let fd = es[i].data.u64.cint
 
-      if fd == evq.fdWake:
+      if fd == fdWake:
         var b: char
-        discard posix.read(evq.fdWake, b.addr, 1)
+        discard posix.read(fdWake, b.addr, 1)
         evq.handleMessage recv()
 
       elif fd in evq.ios:
@@ -152,14 +160,7 @@ proc newEvq*(): Evq {.actor.} =
   var fds: array[2, cint]
   discard pipe(fds)
   
-  var evq = EvqImpl(
-    epfd: epoll_create(1),
-    fdWake: fds[0]
-  )
-  
-  evq.addFd(evq.fdWake)
-
-  let id = hatch evqActor(evq)
+  let id = hatch evqActor(fds[0])
   setMailboxFd(id, fds[1])
 
   Evq(id: id)

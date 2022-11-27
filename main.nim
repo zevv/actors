@@ -118,10 +118,12 @@ proc main() {.actor.} =
 
 
 
-proc ticker() {.actor.} = 
-  while true:
+proc ticker(evq: Evq) {.actor.} = 
+  var i = 0
+  while i < 5:
+    evq.sleep(0.5)
     echo "-----------------------"
-    os.sleep(100)
+    inc i
 
 
 proc readFd(evq: Evq, fd: cint): string {.actor.} =
@@ -137,12 +139,12 @@ proc readFd(evq: Evq, fd: cint): string {.actor.} =
 proc main2() {.actor.} =
   
   let evq = newEvq()
+  
+  #let id = hatch ticker(evq)
 
   echo "sleep"
   evq.sleep(1)
   echo "slept"
-
-  #let id = hatch ticker()
 
   while true:
     let l = readFd(evq, 0)
@@ -159,7 +161,7 @@ proc main2() {.actor.} =
 proc go() =
   var pool = newPool(2)
 
-  #discard pool.hatch main()
+  discard pool.hatch main()
   discard pool.hatch main2()
 
   pool.join()
