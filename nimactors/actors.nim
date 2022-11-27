@@ -38,8 +38,8 @@ type
     idleQueue: Table[Actor, ActorCond] # actor that is waiting for messages
     killReq: Table[Actor, bool]
 
-    infoLock: Lock
-    infoTable: Table[Actor, bool]
+    actorsLock: Lock
+    actors: Table[Actor, bool]
 
   ActorCond* = ref object of Continuation
     id*: Actor
@@ -131,14 +131,12 @@ proc newActor*(): Actor =
   result.log("new")
 
 
-template withInfo(pool: ptr Pool, id: Actor, code: untyped) =
-  var info {.inject.} = id
-
-  if not info.p.isNil:
-    withLock info[].lock:
+template withLock(actor: Actor, code: untyped) =
+  if not actor.p.isNil:
+    withLock actor[].lock:
       code
   else:
-    echo "No info found for ", id
+    echo "empty actor"
 
 
 # Forward declerations
@@ -166,42 +164,42 @@ proc pass*(cFrom, cTo: ActorCond): ActorCond =
   cTo
 
 
-# Send a message from srcId to dstId
+# Send a message from src to dst
 
-proc send*(pool: ptr Pool, srcId, dstId: Actor, msg: sink Message) =
+proc send*(pool: ptr Pool, src, dst: Actor, msg: sink Message) =
   assertIsolated(msg)
-  #echo &"  send {srcId} -> {dstId}: {msg.repr}"
-  msg.src = srcId
+  #echo &"  send {src} -> {dst}: {msg.repr}"
+  msg.src = src
 
   # Deliver the message in the target mailbox
-  pool.withInfo dstId:
-    info[].mailbox.addLast(msg)
-    bitline.logValue("actor." & $dstId & ".mailbox", info[].mailbox.len)
+  withLock dst:
+    dst[].mailbox.addLast(msg)
+    bitline.logValue("actor." & $dst & ".mailbox", dst[].mailbox.len)
     # If the target has a signalFd, wake it
-    if info[].signalFd != 0.cint:
+    if dst[].signalFd != 0.cint:
       let b: char = 'x'
-      discard posix.write(info[].signalFd, b.addr, 1)
+      discard posix.write(dst[].signalFd, b.addr, 1)
 
   # If the target continuation is in the sleep queue, move it to the work queue
   withLock pool.workLock:
-    if dstId in pool.idleQueue:
-      #echo "wake ", dstId
-      let actor = pool.idleQueue[dstId]
-      pool.idleQueue.del(dstId)
+    if dst in pool.idleQueue:
+      #echo "wake ", dst
+      let actor = pool.idleQueue[dst]
+      pool.idleQueue.del(dst)
       pool.workQueue.addLast(actor)
       pool.workCond.signal()
 
 
 # Receive a message
 
-proc tryRecv*(pool: ptr Pool, id: Actor, filter: MailFilter = nil): Message =
-  pool.withInfo id:
+proc tryRecv*(pool: ptr Pool, actor: Actor, filter: MailFilter = nil): Message =
+  withLock actor:
     var first = true
-    for msg in info[].mailbox.mitems:
+    for msg in actor[].mailbox.mitems:
       if not msg.isNil and (filter.isNil or filter(msg)):
         result = msg
         if first:
-          info[].mailbox.popFirst()
+          actor[].mailbox.popFirst()
         else:
           msg = nil
         break
@@ -209,36 +207,37 @@ proc tryRecv*(pool: ptr Pool, id: Actor, filter: MailFilter = nil): Message =
   #echo &"  tryRecv {id}: {result}"
 
 
-proc setSignalFd*(pool: ptr Pool, id: Actor, fd: cint) =
-  pool.withInfo id:
-    info[].signalFd = fd
+proc setSignalFd*(pool: ptr Pool, actor: Actor, fd: cint) =
+  withLock actor:
+    actor[].signalFd = fd
 
 # Signal termination of an actor; inform the parent and kill any linked
 # actors.
 
-proc exit(actor: sink ActorCond, reason: ExitReason, ex: ref Exception = nil) =
-  #assertIsolated(actor)  # TODO: cps refs child
+proc exit(c: sink ActorCond, reason: ExitReason, ex: ref Exception = nil) =
+  #assertIsolated(c)  # TODO: cps refs child
 
-  echo &"Actor {actor.id} terminated, reason: {reason}"
+  echo &"Actor {c.id} terminated, reason: {reason}"
   if not ex.isNil:
     echo "Exception: ", ex.msg
     echo ex.getStackTrace()
 
-  let pool = actor.pool
+  let pool = c.pool
+  let actor = c.id
 
-  pool.withInfo actor.id:
+  withLock actor:
   
-    pool.send(Actor(), info[].idParent,
-              MessageExit(id: actor.id, reason: reason, ex: ex))
+    pool.send(Actor(), actor[].idParent,
+              MessageExit(id: c.id, reason: reason, ex: ex))
 
-    for id in info[].links:
+    for id in actor[].links:
       {.cast(gcsafe).}:
         pool.kill(id)
     
-    reset info[].idParent
+    reset actor[].idParent
 
-  withLock pool.infoLock:
-    pool.infoTable.del(actor.id)
+  withLock pool.actorsLock:
+    pool.actors.del(c.id)
 
 
 # Kill an actor
@@ -336,8 +335,8 @@ proc hatchAux*(pool: ref Pool | ptr Pool, ac: sink ActorCond, idParent=Actor(), 
   if link:
     actor[].links.add idParent
   
-  withLock pool.infoLock:
-    pool.infoTable[actor] = true
+  withLock pool.actorsLock:
+    pool.actors[actor] = true
 
   # Add the new actor to the work queue
   withLock pool.workLock:
@@ -362,7 +361,7 @@ proc newPool*(nWorkers: int): ref Pool =
   var pool = new Pool
   initLock pool.workLock
   initCond pool.workCond
-  initLock pool.infoLock
+  initLock pool.actorsLock
 
   for i in 0..<nWorkers:
     var worker = new Worker
@@ -379,11 +378,11 @@ proc newPool*(nWorkers: int): ref Pool =
 proc join*(pool: ref Pool) =
 
   while true:
-    withLock pool.infoLock:
-      if pool.infoTable.len == 0:
+    withLock pool.actorsLock:
+      if pool.actors.len == 0:
         break
       let mi = mallinfo2()
-      bitline.logValue("stats.mailboxes", pool.infoTable.len)
+      bitline.logValue("stats.mailboxes", pool.actors.len)
       bitline.logValue("stats.mem_alloc", mi.uordblks)
       bitline.logValue("stats.mem_arena", mi.arena)
     os.sleep(10)
