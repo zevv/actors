@@ -170,9 +170,9 @@ proc main3() {.actor.} =
 proc go() =
   var pool = newPool(2)
 
-  discard pool.hatch main()
-  discard pool.hatch main2()
-  #discard pool.hatch main3()
+  #discard pool.hatch main()
+  #discard pool.hatch main2()
+  discard pool.hatch main3()
 
   pool.join()
 

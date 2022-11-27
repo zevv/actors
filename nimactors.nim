@@ -7,7 +7,7 @@ export cps
 #export `$`
 
 import nimactors/actors
-export newActorInfo
+#export newActorInfo
 export Actor
 export actors
 export ExitReason

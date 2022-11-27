@@ -39,13 +39,13 @@ type
     killReq: Table[ActorId, bool]
 
     infoLock: Lock
-    #infoTable: Table[ActorId, ActorInfo]
+    infoTable: Table[ActorId, bool]
 
   Actor* = ref object of Continuation
     id*: ActorId
     pool*: ptr Pool
 
-  ActorInfoObject* = object
+  Object* = object
     id*: ActorId
     idParent*: ActorId
     rc*: Atomic[int]
@@ -56,7 +56,7 @@ type
     signalFd: cint
 
   ActorId* = object
-    p*: ptr ActorInfoObject
+    p*: ptr Object
 
   Worker = object
     id: int
@@ -79,19 +79,11 @@ type
   MailFilter* = proc(msg: Message): bool
 
 
-proc `$`*(m: Message): string =
-  if not m.isNil:
-    return "#MSG"
-  else:
-    return "nil"
-
-
-
-proc newActorId*(): ActorId =
-  result.p = create(ActorInfoObject)
-  #echo "ai: new ", cast[int](result.p)
-  result.p[].rc.store(0)
-
+proc `=copy`*(dest: var ActorId, ai: ActorId) =
+  if not ai.p.isNil:
+    #echo "ai: rc ++"
+    ai.p[].rc.atomicInc()
+  dest.p = ai.p
 
 proc `=destroy`*(ai: var ActorId) =
   if not ai.p.isNil:
@@ -104,19 +96,22 @@ proc `=destroy`*(ai: var ActorId) =
       ai.p[].rc.atomicDec()
 
 
-proc `=copy`*(dest: var ActorId, ai: ActorId) =
-  if not ai.p.isNil:
-    #echo "ai: rc ++"
-    ai.p[].rc.atomicInc()
-  if not dest.p.isNil:
-    `=destroy`(dest)
-  dest.p = ai.p
-
-
-proc `[]`*(ai: ActorId): var ActorInfoObject =
+proc `[]`*(ai: ActorId): var Object =
   assert not ai.p.isNil
   ai.p[]
 
+
+proc `$`*(m: Message): string =
+  if not m.isNil:
+    return "#MSG"
+  else:
+    return "nil"
+
+
+proc newActorId*(): ActorId =
+  result.p = create(Object)
+  #echo "ai: new ", cast[int](result.p)
+  result.p[].rc.store(0)
 
 
 template withInfo(pool: ptr Pool, id: ActorId, code: untyped) =
@@ -140,7 +135,7 @@ proc `$`*(pool: ref Pool): string =
   return "#POOL<>"
 
 proc `$`*(a: Actor): string =
-  return "#ACT<" & $(a.id.int) & ">"
+  return "#ACT<" & $cast[int](a.addr) & ">"
 
 proc `$`*(worker: ref Worker | ptr Worker): string =
   return "#WORKER<" & $worker.id & ">"
@@ -216,7 +211,7 @@ proc exit(actor: sink Actor, reason: ExitReason, ex: ref Exception = nil) =
 
   pool.withInfo actor.id:
   
-    pool.send(0.ActorId, info[].id_parent,
+    pool.send(ActorId(), info[].idParent,
               MessageExit(id: actor.id, reason: reason, ex: ex))
 
     for id in info[].links:
@@ -235,7 +230,7 @@ proc kill*(pool: ptr Pool, id: ActorId) =
     # or when jielding
     pool.killReq[id] = true
     # Send the actor a message so it will wake up if it is in the idle pool
-  pool.send(0.ActorId, id, MessageKill())
+  pool.send(ActorId(), id, MessageKill())
 
 
 # Move actor to the idle queue
@@ -301,30 +296,28 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       actor.exit(erNormal)
       
 
-proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, idParent=0.ActorId, link=false): ActorId =
+proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, idParent=ActorId(), link=false): ActorId =
 
   assert not isNil(actor)
   assertIsolated(actor)
 
   pool.actorIdCounter += 1
-  let id = pool.actorIdCounter.load().ActorID
+  #let id = pool.actorIdCounter.load().ActorID
   
   let info = newActorId()
-  info[].id = id
   info[].idParent = idParent
   info[].lock.initLock()
 
   # Initialize actor
   actor.pool = pool[].addr
-  actor.id = id
-  actor.info = info
+  actor.id = info
   
 
   if link:
     info[].links.add idParent
   
   withLock pool.infoLock:
-    pool.infoTable[id] = info
+    pool.infoTable[info] = true
 
   # Add the new actor to the work queue
   withLock pool.workLock:
@@ -332,7 +325,7 @@ proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, idParent=0.ActorId,
     pool.workQueue.addLast actor
     pool.workCond.signal()
 
-  id
+  info
 
 
 # Create and initialize a new actor
