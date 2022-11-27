@@ -8,6 +8,7 @@ import std/tables
 import std/posix
 import std/atomics
 import std/times
+import std/hashes
 
 import cps
 
@@ -211,11 +212,6 @@ proc hatchAux*(pool: ref Pool | ptr Pool, c: sink ActorCont, parent=Actor(), lin
   actor[].parent = parent
   actor[].lock.initLock()
   actor[].pid = pool.actorPidCounter.load()
-
-  let a1 = actor
-  let a2 = actor
-  echo hash(a1)
-  echo hash(a2)
 
   c.pool = pool[].addr
   c.actor = actor
