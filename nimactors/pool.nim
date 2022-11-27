@@ -47,8 +47,6 @@ type
     thread: Thread[ptr Worker]
     pool: ptr Pool
 
-  MailFilter* = proc(msg: Message): bool
-
 
 # Forward declerations
 

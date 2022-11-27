@@ -33,6 +33,9 @@ type
   ExitReason* = enum
     erNormal, erKilled, erError
   
+  MailFilter* = proc(msg: Message): bool
+
+
 
 template log(a: Actor, msg: string) =
   #echo "\e[1;35m" & $a & ": " & msg & "\e[0m"
@@ -97,3 +100,20 @@ proc link*(a, b: Actor) =
     a[].links.add b
   withLock b:
     b[].links.add a
+
+
+# Receive a message
+
+proc tryRecv2*(actor: Actor, filter: MailFilter = nil): Message =
+  withLock actor:
+    var first = true
+    for msg in actor[].mailbox.mitems:
+      if not msg.isNil and (filter.isNil or filter(msg)):
+        result = msg
+        if first:
+          actor[].mailbox.popFirst()
+        else:
+          msg = nil
+        break
+      first = false
+  #echo &"  tryRecv {id}: {result}"

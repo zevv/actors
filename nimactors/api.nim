@@ -21,39 +21,22 @@ proc toIdleQueue*(c: sink ActorCont): ActorCont {.cpsMagic.} =
   c.pool.toIdleQueue(c)
 
 
-# Receive a message
-
-proc tryRecv*(actor: Actor, filter: MailFilter = nil): Message =
-  withLock actor:
-    var first = true
-    for msg in actor[].mailbox.mitems:
-      if not msg.isNil and (filter.isNil or filter(msg)):
-        result = msg
-        if first:
-          actor[].mailbox.popFirst()
-        else:
-          msg = nil
-        break
-      first = false
-  #echo &"  tryRecv {id}: {result}"
-
-
 # Receive a message, nonblocking
 
 proc tryRecv*(c: ActorCont): Message {.cpsVoodoo.} =
-  result = c.actor.tryRecv()
+  result = c.actor.tryRecv2()
   if result of MessageKill:
     result = nil # will cause a jield, catching the kill
 
 proc tryRecv*(c: ActorCont, srcId: Actor): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg.src == srcId
-  result = c.actor.tryRecv(filter)
+  result = c.actor.tryRecv2(filter)
   if result of MessageKill:
     result = nil # will cause a jield, catching the kill
 
 proc tryRecv*(c: ActorCont, T: typedesc): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg of T
-  result = c.actor.tryRecv(filter)
+  result = c.actor.tryRecv2(filter)
   if result of MessageKill:
     result = nil # will cause a jield, catching the kill
 
