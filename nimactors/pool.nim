@@ -118,6 +118,7 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
         pool.kill(id)
     
     reset actor[].parent
+    reset actor[].links
 
   pool.actorCount -= 1
 
