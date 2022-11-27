@@ -138,6 +138,10 @@ proc main2() {.actor.} =
   
   let evq = newEvq()
 
+  echo "sleep"
+  evq.sleep(1)
+  echo "slept"
+
   #let id = hatch ticker()
 
   while true:

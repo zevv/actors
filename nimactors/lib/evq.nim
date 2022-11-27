@@ -1,7 +1,9 @@
 
 import std/epoll
 import std/posix
+import std/monotimes
 import std/tables
+import std/heapqueue
 
 import cps
 
@@ -18,14 +20,17 @@ proc timerfd_settime(ufd: cint, flags: cint,
 
 type
 
-  Evq* = ref object
-    id*: ActorId
-
   EvqImpl = ref object
     fdWake: cint
     epfd: cint
     ios: Table[cint, Io]
     pool: ptr Pool
+    now: float
+    timers*: HeapQueue[Timer]
+
+  Timer = object
+    time: float
+    actorId: ActorId
 
   IoKind = enum
     iokTimer, iokFd
@@ -46,6 +51,9 @@ type
   MessageEvqEvent* = ref object of Message
   
 
+template `<`(a, b: Timer): bool =
+  a.time < b.time
+
 
 proc addFd(evq: EvqImpl, fd: cint) =
   var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: fd.uint64))
@@ -56,17 +64,7 @@ proc handleMessage(evq: EvqImpl, m: Message) {.actor.} =
 
   if m of MessageEvqAddTimer:
     let interval = m.MessageEvqAddTimer.interval
-    let fd = timerfd_create(CLOCK_MONOTONIC, O_CLOEXEC or O_NONBLOCK).cint
-    var newTs, oldTs: Itimerspec   
-    newTs.it_interval.tv_sec = posix.Time(0)
-    newTs.it_interval.tv_nsec = (interval * 1000 * 1000 * 1000).clong
-    newTs.it_value.tv_sec = newTs.it_interval.tv_sec
-    newTs.it_value.tv_nsec = newTs.it_interval.tv_nsec       
-    discard timerfd_settime(fd, cint(0), newTs, oldTs)
-    var ee2 = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: fd.uint64))
-    discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fd.cint, ee2.addr)
-    let io = Io(kind: iokTimer, actorId: m.src)
-    evq.ios[fd] = io
+    evq.timers.push Timer(actorId: m.src, time: evq.now + interval)
 
   elif m of MessageEvqAddFd:
     evq.addFd m.MessageEvqAddFd.fd
@@ -81,6 +79,25 @@ proc handleMessage(evq: EvqImpl, m: Message) {.actor.} =
   else:
     echo "unhandled message"
 
+   
+proc updateNow(evq: EvqImpl) =
+    evq.now = getMonoTime().ticks.float / 1.0e9
+
+proc calculateTimeout(evq: EvqImpl): cint =
+  evq.updateNow()
+  result = -1
+  if evq.timers.len > 0:
+    let timer = evq.timers[0]
+    result = cint(1000 * (timer.time - evq.now + 0.005))
+    result = max(result, 0)
+
+
+proc handleTimers(evq: EvqImpl) {.actor.} =
+  evq.updateNow()
+  while evq.timers.len > 0 and evq.timers[0].time <= evq.now:
+    let t = evq.timers.pop
+    send(t.actorId, MessageEvqEvent())
+
 
 # This actor is special, as it has to wait on both the epoll and the regular
 # mailbox. This is done by adding a pipe-to-self, which is written by the
@@ -91,7 +108,11 @@ proc evqActor*(evq: EvqImpl) {.actor.} =
   while true:
         
     var es: array[8, EpollEvent]
-    let n = epoll_wait(evq.epfd, es[0].addr, es.len.cint, -1)
+    let timeout = evq.calculateTimeout()
+    let n = epoll_wait(evq.epfd, es[0].addr, es.len.cint, timeout)
+
+    evq.now = getMonoTime().ticks.float / 1.0e9
+    evq.handleTimers()
     
     var i = 0
     while i < n:
@@ -114,6 +135,11 @@ proc evqActor*(evq: EvqImpl) {.actor.} =
 
 # Public API
 
+type
+
+  Evq* = ref object
+    id*: ActorId
+
 proc addTimer*(actor: Actor, evq: Evq, interval: float) {.cpsVoodoo.} =
   send(actor.pool, actor.id, evq.id, MessageEvqAddTimer(interval: interval))
 
@@ -124,6 +150,11 @@ proc addFd*(actor: Actor, evq: Evq, fd: cint) {.cpsVoodoo.} =
 
 proc delFd*(actor: Actor, evq: Evq, fd: cint) {.cpsVoodoo.} =
   send(actor.pool, actor.id, evq.id, MessageEvqDelFd(fd: fd))
+
+
+proc sleep*(evq: Evq, interval: float) {.actor.} =
+  evq.addTimer(interval)
+  discard recv(MessageEvqEvent)
 
 
 proc newEvq*(): Evq {.actor.} =
