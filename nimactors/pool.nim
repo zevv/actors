@@ -74,6 +74,16 @@ proc pass*(cFrom, cTo: ActorCont): ActorCont =
   cTo
 
 
+proc toIdleQueue(pool: ptr Pool, actor: Actor) =
+  # If the target continuation is in the sleep queue, move it to the work queue
+  withLock pool.workLock:
+    if actor in pool.idleQueue:
+      #echo "wake ", dst
+      let c = pool.idleQueue[actor]
+      pool.idleQueue.del(actor)
+      pool.workQueue.addLast(c)
+      pool.workCond.signal()
+
 # Send a message from src to dst
 
 proc send*(pool: ptr Pool, src, dst: Actor, msg: sink Message) =
@@ -90,14 +100,7 @@ proc send*(pool: ptr Pool, src, dst: Actor, msg: sink Message) =
       let b: char = 'x'
       discard posix.write(dst[].signalFd, b.addr, 1)
 
-  # If the target continuation is in the sleep queue, move it to the work queue
-  withLock pool.workLock:
-    if dst in pool.idleQueue:
-      #echo "wake ", dst
-      let actor = pool.idleQueue[dst]
-      pool.idleQueue.del(dst)
-      pool.workQueue.addLast(actor)
-      pool.workCond.signal()
+  pool.toIdleQueue(dst)
 
 
 
