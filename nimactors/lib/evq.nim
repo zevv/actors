@@ -18,10 +18,10 @@ proc timerfd_settime(ufd: cint, flags: cint,
 
 type
 
-  EvqInfo = ref object
-    actorId*: ActorId
-
   Evq* = ref object
+    id*: ActorId
+
+  EvqImpl = ref object
     fdWake: cint
     epfd: cint
     ios: Table[cint, Io]
@@ -47,12 +47,12 @@ type
   
 
 
-proc addFd(evq: Evq, fd: cint) =
+proc addFd(evq: EvqImpl, fd: cint) =
   var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: fd.uint64))
   discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fd, ee.addr)
 
 
-proc handleMessage(evq: Evq, m: Message) {.actor.} =
+proc handleMessage(evq: EvqImpl, m: Message) {.actor.} =
 
   if m of MessageEvqAddTimer:
     let interval = m.MessageEvqAddTimer.interval
@@ -69,11 +69,9 @@ proc handleMessage(evq: Evq, m: Message) {.actor.} =
     evq.ios[fd] = io
 
   elif m of MessageEvqAddFd:
-    let fd = m.MessageEvqAddFd.fd
-    var ee2 = EpollEvent(events: POLLIN.uint32 or EPOLLET.uint32, data: EpollData(u64: fd.uint64))
-    discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fd.cint, ee2.addr)
+    evq.addFd m.MessageEvqAddFd.fd
     let io = Io(kind: iokFd, actorId: m.src)
-    evq.ios[fd] = io
+    evq.ios[m.MessageEvqAddFd.fd] = io
 
   elif m of MessageEvqDelFd:
     let fd = m.MessageEvqDelFd.fd
@@ -88,7 +86,7 @@ proc handleMessage(evq: Evq, m: Message) {.actor.} =
 # mailbox. This is done by adding a pipe-to-self, which is written by the
 # send() when a message is posted to the mailbox
 
-proc evqActor*(evq: Evq) {.actor.} =
+proc evqActor*(evq: EvqImpl) {.actor.} =
   
   while true:
         
@@ -114,27 +112,26 @@ proc evqActor*(evq: Evq) {.actor.} =
       inc i
 
 
-proc addTimer*(actor: Actor, id: ActorID, interval: float) {.cpsVoodoo.} =
-  let msg = MessageEvqAddTimer(interval: interval)
-  send(actor.pool, actor.id, id, msg)
+# Public API
+
+proc addTimer*(actor: Actor, evq: Evq, interval: float) {.cpsVoodoo.} =
+  send(actor.pool, actor.id, evq.id, MessageEvqAddTimer(interval: interval))
 
 
-proc addFd*(actor: Actor, id: ActorID, fd: cint) {.cpsVoodoo.} =
-  let msg = MessageEvqAddFd(fd: fd)
-  send(actor.pool, actor.id, id, msg)
+proc addFd*(actor: Actor, evq: Evq, fd: cint) {.cpsVoodoo.} =
+  send(actor.pool, actor.id, evq.id, MessageEvqAddFd(fd: fd))
 
 
-proc delFd*(actor: Actor, id: ActorId, fd: cint) {.cpsVoodoo.} =
-  let msg = MessageEvqDelFd(fd: fd)
-  send(actor.pool, actor.id, id, msg)
+proc delFd*(actor: Actor, evq: Evq, fd: cint) {.cpsVoodoo.} =
+  send(actor.pool, actor.id, evq.id, MessageEvqDelFd(fd: fd))
 
 
-proc newEvq*(): ActorId {.actor.} =
+proc newEvq*(): Evq {.actor.} =
 
   var fds: array[2, cint]
   discard pipe(fds)
   
-  var evq = Evq(
+  var evq = EvqImpl(
     epfd: epoll_create(1),
     fdWake: fds[0]
   )
@@ -143,7 +140,8 @@ proc newEvq*(): ActorId {.actor.} =
 
   let id = hatch evqActor(evq)
   setMailboxFd(id, fds[1])
-  id
+
+  Evq(id: id)
 
 
 

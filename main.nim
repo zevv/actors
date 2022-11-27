@@ -124,32 +124,32 @@ proc ticker() {.actor.} =
     os.sleep(100)
 
 
-proc readFd(aidEvq: ActorID, fd: cint): string {.actor.} =
-  addFd(aidEvq, fd)
+proc readFd(evq: Evq, fd: cint): string {.actor.} =
+  evq.addFd(fd)
   discard recv(MessageEvqEvent)
   var buf = newString(1024)
   let r = posix.read(0, buf[0].addr, buf.len)
   buf.setLen if r > 0: r else: 0
-  delFd(aidEvq, fd)
+  evq.delFd(fd)
   buf
 
 
 proc main2() {.actor.} =
   
-  let aidEvq = newEvq()
+  let evq = newEvq()
 
   #let id = hatch ticker()
 
   while true:
-    let l = readFd(aidEvq, 0)
+    let l = readFd(evq, 0)
     if l.len == 0:
       break
     echo "=== ", l
     if l.contains("boom"):
       raise newException(IOError, "flap")
 
-  echo "main2 done, killing ", aidEvq
-  kill(aidEvq)
+  echo "main2 done, killing ", evq.id
+  kill(evq.id)
 
 
 proc go() =
