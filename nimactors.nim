@@ -2,9 +2,9 @@
 import cps
 export cps
 
-import nimactors/actorid
-export ActorId
-export `$`
+#import nimactors/actorid
+#export ActorId
+#export `$`
 
 import nimactors/actors
 export newActorInfo

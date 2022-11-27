@@ -39,7 +39,7 @@ type
     killReq: Table[ActorId, bool]
 
     infoLock: Lock
-    infoTable: Table[ActorId, ActorInfo]
+    #infoTable: Table[ActorId, ActorInfo]
 
   Actor* = ref object of Continuation
     id*: ActorId
@@ -55,7 +55,7 @@ type
     mailBox: Deque[Message]
     signalFd: cint
 
-  ActorInfo* = object
+  ActorId* = object
     p*: ptr ActorInfoObject
 
   Worker = object
@@ -81,19 +81,19 @@ type
 
 proc `$`*(m: Message): string =
   if not m.isNil:
-    return "#MSG<src:" & $(m.src.int) & ">"
+    return "#MSG"
   else:
     return "nil"
 
 
 
-proc newActorInfo*(): ActorInfo =
+proc newActorId*(): ActorId =
   result.p = create(ActorInfoObject)
   #echo "ai: new ", cast[int](result.p)
   result.p[].rc.store(0)
 
 
-proc `=destroy`*(ai: var ActorInfo) =
+proc `=destroy`*(ai: var ActorId) =
   if not ai.p.isNil:
     if ai.p[].rc.load(moAcquire) == 0:
       #echo "ai: destroy"
@@ -104,7 +104,7 @@ proc `=destroy`*(ai: var ActorInfo) =
       ai.p[].rc.atomicDec()
 
 
-proc `=copy`*(dest: var ActorInfo, ai: ActorInfo) =
+proc `=copy`*(dest: var ActorId, ai: ActorId) =
   if not ai.p.isNil:
     #echo "ai: rc ++"
     ai.p[].rc.atomicInc()
@@ -113,17 +113,14 @@ proc `=copy`*(dest: var ActorInfo, ai: ActorInfo) =
   dest.p = ai.p
 
 
-proc `[]`*(ai: ActorInfo): var ActorInfoObject =
+proc `[]`*(ai: ActorId): var ActorInfoObject =
   assert not ai.p.isNil
   ai.p[]
 
 
 
 template withInfo(pool: ptr Pool, id: ActorId, code: untyped) =
-  var info {.inject.}: ActorInfo
-  withLock pool.infoLock:
-    if id in pool.infoTable:
-      info = pool.infoTable[id]
+  var info {.inject.} = id
 
   if not info.p.isNil:
     withLock info[].lock:
@@ -311,15 +308,17 @@ proc hatchAux*(pool: ref Pool | ptr Pool, actor: sink Actor, idParent=0.ActorId,
 
   pool.actorIdCounter += 1
   let id = pool.actorIdCounter.load().ActorID
+  
+  let info = newActorId()
+  info[].id = id
+  info[].idParent = idParent
+  info[].lock.initLock()
 
   # Initialize actor
   actor.pool = pool[].addr
   actor.id = id
+  actor.info = info
   
-  let info = newActorInfo()
-  info[].id = id
-  info[].idParent = idParent
-  info[].lock.initLock()
 
   if link:
     info[].links.add idParent
