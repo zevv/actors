@@ -62,7 +62,8 @@ template recv*(T: typedesc): auto =
 # Send a message to another actor
 
 proc send*(c: ActorCont, dst: Actor, msg: sink Message) {.cpsVoodoo.} =
-  c.pool.send(c.actor, dst, msg)
+  send(c.actor, dst, msg)
+  pool.toWorkQueue(dst)
 
 
 # Send a kill message to another actor

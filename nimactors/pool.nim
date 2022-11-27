@@ -74,7 +74,7 @@ proc pass*(cFrom, cTo: ActorCont): ActorCont =
   cTo
 
 
-proc toIdleQueue(pool: ptr Pool, actor: Actor) =
+proc toWorkQueue*(pool: ptr Pool, actor: Actor) =
   # If the target continuation is in the sleep queue, move it to the work queue
   withLock pool.workLock:
     if actor in pool.idleQueue:
@@ -84,24 +84,12 @@ proc toIdleQueue(pool: ptr Pool, actor: Actor) =
       pool.workQueue.addLast(c)
       pool.workCond.signal()
 
+
 # Send a message from src to dst
 
 proc send*(pool: ptr Pool, src, dst: Actor, msg: sink Message) =
-  assertIsolated(msg)
-  #echo &"  send {src} -> {dst}: {msg.repr}"
-  msg.src = src
-
-  # Deliver the message in the target mailbox
-  withLock dst:
-    dst[].mailbox.addLast(msg)
-    bitline.logValue("actor." & $dst & ".mailbox", dst[].mailbox.len)
-    # If the target has a signalFd, wake it
-    if dst[].signalFd != 0.cint:
-      let b: char = 'x'
-      discard posix.write(dst[].signalFd, b.addr, 1)
-
-  pool.toIdleQueue(dst)
-
+  dst.send(src, msg)
+  pool.toWorkQueue(dst)
 
 
 proc setSignalFd*(pool: ptr Pool, actor: Actor, fd: cint) =

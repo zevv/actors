@@ -2,8 +2,11 @@
 
 import std/atomics
 import std/locks
+import std/posix
 import std/deques
 
+import isisolated
+import bitline
 
 type
 
@@ -117,3 +120,19 @@ proc tryRecv2*(actor: Actor, filter: MailFilter = nil): Message =
         break
       first = false
   #echo &"  tryRecv {id}: {result}"
+
+
+proc send*(dst: Actor, src: Actor, msg: sink Message) =
+  assertIsolated(msg)
+  #echo &"  send {src} -> {dst}: {msg.repr}"
+  msg.src = src
+
+  # Deliver the message in the target mailbox
+  withLock dst:
+    dst[].mailbox.addLast(msg)
+    bitline.logValue("actor." & $dst & ".mailbox", dst[].mailbox.len)
+    # If the target has a signalFd, wake it
+    if dst[].signalFd != 0.cint:
+      let b: char = 'x'
+      discard posix.write(dst[].signalFd, b.addr, 1)
+
