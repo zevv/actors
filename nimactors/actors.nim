@@ -237,7 +237,6 @@ template hatch*(pool: ref Pool, c: typed): ActorId =
 
 
 proc setMailboxFd*(pool: ref Pool | ptr Pool, id: ActorId, fd: cint) {.cpsVoodoo.} =
-  echo "ssfd ", fd
   pool.mailhub.setSignalFd(id, fd)
 
 

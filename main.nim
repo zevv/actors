@@ -134,7 +134,9 @@ proc readFd(aidEvq: ActorID, fd: cint): string {.actor.} =
   buf
 
 
-proc main2(aidEvq: ActorId) {.actor.} =
+proc main2() {.actor.} =
+  
+  let aidEvq = hatchLinked newEvq()
 
   #let id = hatch ticker()
 
@@ -152,10 +154,9 @@ proc main2(aidEvq: ActorId) {.actor.} =
 
 proc go() =
   var pool = newPool(2)
-  let evqId = newEvq(pool)
 
   #discard pool.hatch main()
-  discard pool.hatch main2(evqId)
+  discard pool.hatch main2()
 
   pool.join()
 

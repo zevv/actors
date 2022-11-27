@@ -21,7 +21,8 @@ export Pool
 import nimactors/api
 export actor
 export hatch
-export hatchVooDoo
+export hatchAux
+export hatchLinked
 export kill
 export recv
 export self

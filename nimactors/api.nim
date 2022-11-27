@@ -73,15 +73,15 @@ proc kill*(actor: Actor, dst: ActorId) {.cpsVoodoo.} =
 
 # Hatch an actor from within an actor
 
-proc hatchVoodoo*(actor: Actor, newActor: sink Actor, link: bool): ActorId {.cpsVoodoo.} =
-  hatchAux(actor.pool, newActor, actor.id, link)
+proc hatchAux*(actor: Actor, newActor: sink Actor, link: bool): ActorId {.cpsVoodoo.} =
+  actor.pool.hatchAux(newActor, actor.id, link)
 
 
 # Hatches the given actor and returns its AID.
 
 template hatch*(c: typed): ActorId =
   let actor = Actor(whelp c)
-  hatchVoodoo(actor, false)
+  hatchAux(actor, false)
 
 
 # Hatches the given actor passing, links it to the current process, and returns
@@ -89,7 +89,7 @@ template hatch*(c: typed): ActorId =
 
 template hatchLinked*(c: typed): ActorId =
   let actor = Actor(whelp c)
-  hatchVoodoo(actor, true)
+  hatchAux(actor, true)
 
 
 # Returns the AID of the calling actor

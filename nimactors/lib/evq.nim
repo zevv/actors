@@ -46,8 +46,13 @@ type
   MessageEvqEvent* = ref object of Message
   
 
-proc handleMessage(evq: Evq) {.actor.} =
-  var m = recv()
+
+proc addFd(evq: Evq, fd: cint) =
+  var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: fd.uint64))
+  discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fd, ee.addr)
+
+
+proc handleMessage(evq: Evq, m: Message) {.actor.} =
 
   if m of MessageEvqAddTimer:
     let interval = m.MessageEvqAddTimer.interval
@@ -83,28 +88,39 @@ proc handleMessage(evq: Evq) {.actor.} =
 # mailbox. This is done by adding a pipe-to-self, which is written by the
 # send() when a message is posted to the mailbox
 
-proc evqActor(evq: Evq) {.actor.} =
+proc newEvq*() {.actor.} =
   
-  var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: evq.fdWake.uint64))
-  discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, evq.fdWake.cint, ee.addr)
+  var fds: array[2, cint]
+  discard pipe(fds)
+  
+  var evq = Evq(
+    epfd: epoll_create(1),
+    fdWake: fds[0]
+  )
+
+  setMailboxFd(fds[1])
+  evq.addFd(evq.fdWake)
 
   while true:
-
+        
+    echo "prepoll"
     var es: array[8, EpollEvent]
-    let n = epoll_wait(evq.epfd, es[0].addr, es.len.cint, 1000)
+    let n = epoll_wait(evq.epfd, es[0].addr, es.len.cint, -1)
     
-    echo "loop pool: ", n
+    echo "poll: ", n
 
     var i = 0
     while i < n:
       let fd = es[i].data.u64.cint
 
       if fd == evq.fdWake:
+        echo "fdwake"
         var b: char
         discard posix.read(evq.fdWake, b.addr, 1)
-        handleMessage(evq)
+        evq.handleMessage recv()
 
       elif fd in evq.ios:
+        echo "fdio"
         let io = evq.ios[fd]
         if io.kind == iokTimer:
           var data: uint64
@@ -130,17 +146,7 @@ proc delFd*(actor: Actor, id: ActorId, fd: cint) {.cpsVoodoo.} =
 
 
 proc newEvq*(pool: ref Pool | ptr Pool): ActorId =
-  
-  var fds: array[2, cint]
-  discard pipe(fds)
-  
-  var evq = Evq(
-    epfd: epoll_create(1),
-    fdWake: fds[0]
-  )
+  pool.hatch evqActor()
 
-  let id = pool.hatch evqActor(evq)
-  pool.setMailboxFd(id, fds[1])
 
-  id
 
