@@ -45,29 +45,31 @@ template log(a: Actor, msg: string) =
   #echo "\e[1;35m" & $a & ": " & msg & "\e[0m"
   discard
 
+proc `=destroy`*(actor: var Actor)
 
-proc `=copy`*(dest: var Actor, ai: Actor) =
-  if not ai.p.isNil:
-    ai.p[].rc.atomicInc()
-    ai.log("rc ++ " & $ai.p[].rc.load())
-  doAssert dest.p.isNil
-  dest.p = ai.p
+proc `=copy`*(dest: var Actor, actor: Actor) =
+  if not actor.p.isNil:
+    actor.p[].rc.atomicInc()
+    actor.log("rc ++ " & $actor.p[].rc.load())
+  if not dest.p.isNil:
+    `=destroy`(dest)
+  dest.p = actor.p
 
 
-proc `=destroy`*(ai: var Actor) =
-  if not ai.p.isNil:
-    if ai.p[].rc.load(moAcquire) == 0:
-      ai.log("destroy")
-      `=destroy`(ai.p[])
-      deallocShared(ai.p)
+proc `=destroy`*(actor: var Actor) =
+  if not actor.p.isNil:
+    if actor.p[].rc.load(moAcquire) == 0:
+      actor.log("destroy")
+      `=destroy`(actor.p[])
+      deallocShared(actor.p)
     else:
-      ai.p[].rc.atomicDec()
-      ai.log("rc -- " & $ai.p[].rc.load())
+      actor.p[].rc.atomicDec()
+      actor.log("rc -- " & $actor.p[].rc.load())
 
 
-proc `[]`*(ai: Actor): var ActorObject =
-  assert not ai.p.isNil
-  ai.p[]
+proc `[]`*(actor: Actor): var ActorObject =
+  assert not actor.p.isNil
+  actor.p[]
 
 
 proc newActor*(pid: int, parent: Actor): Actor =

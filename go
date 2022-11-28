@@ -26,7 +26,7 @@ run()
 			nim c ${nimflags} -d:danger main.nim  && valgrind --quiet --tool=helgrind ./main
 			;;
 		drd)
-			nim c ${nimflags} -d:danger main.nim  && valgrind --quiet --tool=drd --suppressions=./misc/valgrind-drd-suppressions --gen-suppressions=yes ./main
+			nim c ${nimflags} -d:danger main.nim  && valgrind --quiet --tool=drd --suppressions=./misc/valgrind-drd-suppressions ./main
 			;;
 		bitline)
 			nim c ${nimflags} -d:danger -d:optbitline:bitline.log main.nim && ./main

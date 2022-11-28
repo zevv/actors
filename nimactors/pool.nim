@@ -59,8 +59,11 @@ proc kill*(pool: ptr Pool, id: Actor)
 proc `$`*(pool: ref Pool): string =
   return "pool"
 
-proc `$`*(a: ActorCont): string =
-  return "actorcond." & $(a.actor.p[].pid)
+proc `$`*(c: ActorCont): string =
+  if c.actor.p.isNil:
+    return "actorcont.nil"
+  else:
+    return "actorcont." & $(c.actor.p[].pid)
 
 proc `$`*(worker: ref Worker | ptr Worker): string =
   return "worker." & $worker.id
@@ -70,7 +73,6 @@ proc `$`*(worker: ref Worker | ptr Worker): string =
 
 proc pass*(cFrom, cTo: ActorCont): ActorCont =
   cTo.pool = cFrom.pool
-  #cTo.id = cFrom.id
   cTo.actor = cFrom.actor
   cTo
 
@@ -204,7 +206,6 @@ proc workerThread(worker: ptr Worker) {.thread.} =
 proc hatchAux*(pool: ref Pool | ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =
 
   assert not isNil(c)
-  assertIsolated(c)
 
   pool.actorPidCounter += 1
   let actor = newActor(pool.actorPidCounter.load(), parent)
@@ -219,7 +220,7 @@ proc hatchAux*(pool: ref Pool | ptr Pool, c: sink ActorCont, parent=Actor(), lin
 
   # Add the new actor to the work queue
   withLock pool.workLock:
-    assertIsolated(c)
+    #assertIsolated(c)
     pool.workQueue.addLast c
     pool.workCond.signal()
 

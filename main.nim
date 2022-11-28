@@ -1,5 +1,6 @@
 
 import std/os
+import std/syncio
 import std/strformat
 import std/strutils
 import std/times
@@ -118,18 +119,10 @@ proc main() {.actor.} =
 
 
 
-proc ticker(evq: Evq) {.actor.} = 
-  var i = 0
-  while i < 5:
-    evq.sleep(0.5)
-    echo "-----------------------"
-    inc i
-
-
 proc main2() {.actor.} =
   
   let evq = newEvq()
-  link(self(), evq.actor)
+  link(self(), evq)
   
   #let id = hatch ticker(evq)
 
@@ -148,22 +141,37 @@ proc main2() {.actor.} =
       raise newException(IOError, "flap")
 
 
-proc foo() {.actor.} =
-  echo "foo"
-  #send(id, Message())
+
+proc ticker(evq: Actor, id: int) {.actor.} = 
+  var i = 0
+  while i < 10:
+    evq.sleep(0.5)
+    stderr.write($id & " ")
+    inc i
+
 
 proc main3() {.actor.} =
 
-  echo "main3"
-  let i = hatch foo()
-  #let i = hatch foo(self())
-  #let m = recv()
+  let evq = newEvq()
+
+  var actors: seq[Actor]
+  var i = 0
+  while i < 10000:
+    echo "hatch ", i
+    actors.add hatch ticker(evq, i)
+    inc i
+
+  evq.sleep(5)
+  kill(evq)
+
+
+
 
 proc go() =
-  var pool = newPool(4)
+  var pool = newPool(16)
 
-  discard pool.hatch main()
-  discard pool.hatch main2()
+  #discard pool.hatch main()
+  #discard pool.hatch main2()
   discard pool.hatch main3()
 
   pool.join()

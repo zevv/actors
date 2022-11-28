@@ -3,6 +3,7 @@ import cps
 export cps
 
 import nimactors/actorobj
+export `$`
 export ExitReason
 export Actor
 export Message

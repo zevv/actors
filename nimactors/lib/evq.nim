@@ -18,14 +18,14 @@ type
 
   Timer = object
     time: float
-    actorId: Actor
+    actor: Actor
 
   IoKind = enum
     iokTimer, iokFd
 
   Io = ref object
     kind: IoKind
-    actorId: Actor
+    actor: Actor
 
   MessageEvqAddTimer* = ref object of Message
     interval: float
@@ -47,14 +47,14 @@ template `<`(a, b: Timer): bool =
 proc handleMessage(evq: EvqImpl, m: Message) {.actor.} =
 
   if m of MessageEvqAddTimer:
-    let interval = m.MessageEvqAddTimer.interval
-    evq.timers.push Timer(actorId: m.src, time: evq.now + interval)
+    let m = m.MessageEvqAddTimer
+    evq.timers.push Timer(actor: m.src, time: evq.now + m.interval)
 
   elif m of MessageEvqAddFd:
     let m = m.MessageEvqAddFd
     var ee = EpollEvent(events: m.events.uint32 or EPOLLET.uint32, data: EpollData(u64: m.fd.uint64))
     discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, m.fd, ee.addr)
-    let io = Io(kind: iokFd, actorId: m.src)
+    let io = Io(kind: iokFd, actor: m.src)
     evq.ios[m.MessageEvqAddFd.fd] = io
 
   elif m of MessageEvqDelFd:
@@ -81,10 +81,9 @@ proc calculateTimeout(evq: EvqImpl): cint =
 
 proc handleTimers(evq: EvqImpl) {.actor.} =
   evq.updateNow()
-  while evq.timers.len > 0 and evq.timers[0].time <= evq.now:
+  while evq.timers.len > 0 and evq.now >= evq.timers[0].time:
     let t = evq.timers.pop
-    #echo "Expired, send ", t.actorId
-    send(t.actorId, MessageEvqEvent())
+    send(t.actor, MessageEvqEvent())
 
 
 # This actor is special, as it has to wait on both the epoll and the regular
@@ -123,44 +122,39 @@ proc evqActor*(fdWake: cint) {.actor.} =
         if io.kind == iokTimer:
           var data: uint64
           discard posix.read(fd, data.addr, sizeof(data))
-        send(io.actorId, MessageEvqEvent())
+        send(io.actor, MessageEvqEvent())
 
       inc i
 
 
 # Public API
 
-type
 
-  Evq* = ref object
-    actor*: Actor
-
-
-proc addTimer*(c: ActorCont, evq: Evq, interval: float) {.cpsVoodoo.} =
-  send(c.pool, c.actor, evq.actor, MessageEvqAddTimer(interval: interval))
+proc addTimer*(c: ActorCont, evq: Actor, interval: float) {.cpsVoodoo.} =
+  send(c.pool, c.actor, evq, MessageEvqAddTimer(interval: interval))
 
 
-proc addFd*(c: ActorCont, evq: Evq, fd: cint, events: cshort) {.cpsVoodoo.} =
-  send(c.pool, c.actor, evq.actor, MessageEvqAddFd(fd: fd, events: events))
+proc addFd*(c: ActorCont, evq: Actor, fd: cint, events: cshort) {.cpsVoodoo.} =
+  send(c.pool, c.actor, evq, MessageEvqAddFd(fd: fd, events: events))
 
 
-proc delFd*(c: ActorCont, evq: Evq, fd: cint) {.cpsVoodoo.} =
-  send(c.pool, c.actor, evq.actor, MessageEvqDelFd(fd: fd))
+proc delFd*(c: ActorCont, evq: Actor, fd: cint) {.cpsVoodoo.} =
+  send(c.pool, c.actor, evq, MessageEvqDelFd(fd: fd))
 
 
-proc sleep*(evq: Evq, interval: float) {.actor.} =
+proc sleep*(evq: Actor, interval: float) {.actor.} =
   evq.addTimer(interval)
   discard recv(MessageEvqEvent)
 
 
-proc read*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
+proc read*(evq: Actor, fd: cint, buf: ptr char, size: int): int {.actor.} =
   evq.addFd(fd, POLLIN)
   discard recv(MessageEvqEvent)
   result = posix.read(fd, buf, size)
   evq.delFd(fd)
 
 
-proc newEvq*(): Evq {.actor.} =
+proc newEvq*(): Actor {.actor.} =
 
   var fds: array[2, cint]
   discard pipe(fds)
@@ -168,7 +162,7 @@ proc newEvq*(): Evq {.actor.} =
   let actor = hatch evqActor(fds[0])
   setSignalFd(actor, fds[1])
 
-  Evq(actor: actor)
+  actor
 
 
 
