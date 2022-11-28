@@ -126,16 +126,6 @@ proc ticker(evq: Evq) {.actor.} =
     inc i
 
 
-proc readFd(evq: Evq, fd: cint): string {.actor.} =
-  evq.addFd(fd)
-  discard recv(MessageEvqEvent)
-  var buf = newString(1024)
-  let r = posix.read(0, buf[0].addr, buf.len)
-  buf.setLen if r > 0: r else: 0
-  evq.delFd(fd)
-  buf
-
-
 proc main2() {.actor.} =
   
   let evq = newEvq()
@@ -148,11 +138,13 @@ proc main2() {.actor.} =
   echo "slept"
 
   while true:
-    let l = readFd(evq, 0)
-    if l.len == 0:
+    var buf = newString(1024)
+    let r = evq.read(0, buf[0].addr, 1024)
+    if r <= 0:
       break
-    echo "=== ", l
-    if l.contains("boom"):
+    buf.setLen r
+    echo "=== ", buf
+    if buf.contains("boom"):
       raise newException(IOError, "flap")
 
 

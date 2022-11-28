@@ -32,6 +32,7 @@ type
   
   MessageEvqAddFd* = ref object of Message
     fd: cint
+    events: cshort
   
   MessageEvqDelFd* = ref object of Message
     fd: cint
@@ -50,9 +51,9 @@ proc handleMessage(evq: EvqImpl, m: Message) {.actor.} =
     evq.timers.push Timer(actorId: m.src, time: evq.now + interval)
 
   elif m of MessageEvqAddFd:
-    let fd = m.MessageEvqAddFd.fd
-    var ee = EpollEvent(events: POLLIN.uint32 or EPOLLET.uint32, data: EpollData(u64: fd.uint64))
-    discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fd, ee.addr)
+    let m = m.MessageEvqAddFd
+    var ee = EpollEvent(events: m.events.uint32 or EPOLLET.uint32, data: EpollData(u64: m.fd.uint64))
+    discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, m.fd, ee.addr)
     let io = Io(kind: iokFd, actorId: m.src)
     evq.ios[m.MessageEvqAddFd.fd] = io
 
@@ -139,8 +140,8 @@ proc addTimer*(c: ActorCont, evq: Evq, interval: float) {.cpsVoodoo.} =
   send(c.pool, c.actor, evq.actor, MessageEvqAddTimer(interval: interval))
 
 
-proc addFd*(c: ActorCont, evq: Evq, fd: cint) {.cpsVoodoo.} =
-  send(c.pool, c.actor, evq.actor, MessageEvqAddFd(fd: fd))
+proc addFd*(c: ActorCont, evq: Evq, fd: cint, events: cshort) {.cpsVoodoo.} =
+  send(c.pool, c.actor, evq.actor, MessageEvqAddFd(fd: fd, events: events))
 
 
 proc delFd*(c: ActorCont, evq: Evq, fd: cint) {.cpsVoodoo.} =
@@ -150,6 +151,13 @@ proc delFd*(c: ActorCont, evq: Evq, fd: cint) {.cpsVoodoo.} =
 proc sleep*(evq: Evq, interval: float) {.actor.} =
   evq.addTimer(interval)
   discard recv(MessageEvqEvent)
+
+
+proc read*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
+  evq.addFd(fd, POLLIN)
+  discard recv(MessageEvqEvent)
+  result = posix.read(fd, buf, size)
+  evq.delFd(fd)
 
 
 proc newEvq*(): Evq {.actor.} =
