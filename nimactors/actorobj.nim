@@ -70,11 +70,13 @@ proc `[]`*(ai: Actor): var ActorObject =
   ai.p[]
 
 
-
-proc newActor*(): Actor =
-  result.p = create(ActorObject)
-  #echo "ai: new ", cast[int](result.p)
-  result.p[].rc.store(0)
+proc newActor*(pid: int, parent: Actor): Actor =
+  let actor = create(ActorObject)
+  actor.pid = pid
+  actor.rc.store(0)
+  actor.lock.initLock()
+  actor.parent = parent
+  result.p = actor
   result.log("new")
 
 

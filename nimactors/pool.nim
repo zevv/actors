@@ -207,11 +207,7 @@ proc hatchAux*(pool: ref Pool | ptr Pool, c: sink ActorCont, parent=Actor(), lin
   assertIsolated(c)
 
   pool.actorPidCounter += 1
-  
-  let actor = newActor()
-  actor[].parent = parent
-  actor[].lock.initLock()
-  actor[].pid = pool.actorPidCounter.load()
+  let actor = newActor(pool.actorPidCounter.load(), parent)
 
   c.pool = pool[].addr
   c.actor = actor
