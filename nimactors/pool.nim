@@ -82,6 +82,8 @@ proc toWorkQueue*(pool: ptr Pool, actor: Actor) =
   # If the target continuation is in the sleep queue, move it to the work queue
   withLock pool.workLock:
     if actor in pool.idleQueue:
+      doAssert actor[].state.load() != Running
+      actor[].state.store(Running)
       let c = pool.idleQueue[actor]
       pool.idleQueue.del(actor)
       pool.workQueue.addLast(c)
@@ -146,14 +148,10 @@ proc toIdleQueue*(pool: ptr Pool, c: sink ActorCont) =
   #assertIsolated(c) # TODO
   var killed = false
   withLock pool.workLock:
-    if c.actor in pool.killReq:
-      pool.killReq.del(c.actor)
-      killed = true
-    else:
-      pool.idleQueue[c.actor] = c
-
-  if killed:
-    pool.exit(c.actor, erKilled)
+    let actor = c.actor
+    doAssert actor[].state.load() != Idle
+    pool.idleQueue[actor] = c
+    actor[].state.store(Idle)
 
 
 proc waitForWork(pool: ptr Pool): ActorCont =

@@ -9,12 +9,20 @@ import std/deques
 import isisolated
 import bitline
 
+import cps
+
 type
+
+  State* = enum
+    New, Idle, Running
 
   ActorObject* = object
     rc*: Atomic[int]
+    state*: Atomic[State]
+    c*: Continuation
     pid*: int
     parent*: Actor
+
 
     lock*: Lock
     links*: seq[Actor]
@@ -75,6 +83,7 @@ proc `[]`*(actor: Actor): var ActorObject =
 proc newActor*(pid: int, parent: Actor): Actor =
   let actor = create(ActorObject)
   actor.pid = pid
+  actor.state.store(New)
   actor.rc.store(0)
   actor.lock.initLock()
   actor.parent = parent
