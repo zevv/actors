@@ -35,8 +35,8 @@ type
     workLock: Lock
     stop: bool
     workCond: Cond
-    workQueue: Deque[ActorCont] # actor that needs to be run asap on any worker
-    idleQueue: Table[Actor, ActorCont] # actor that is waiting for messages
+    workQueue: Deque[Actor] # actor that needs to be run asap on any worker
+    idleQueue: Table[Actor, bool] # actor that is waiting for messages
     killReq: Table[Actor, bool]
 
   ActorCont* = ref object of Continuation
@@ -84,9 +84,8 @@ proc toWorkQueue*(pool: ptr Pool, actor: Actor) =
     if actor in pool.idleQueue:
       doAssert actor[].state.load() != Running
       actor[].state.store(Running)
-      let c = pool.idleQueue[actor]
       pool.idleQueue.del(actor)
-      pool.workQueue.addLast(c)
+      pool.workQueue.addLast(actor)
       pool.workCond.signal()
 
 
@@ -149,12 +148,13 @@ proc toIdleQueue*(pool: ptr Pool, c: sink ActorCont) =
   var killed = false
   withLock pool.workLock:
     let actor = c.actor
+    actor[].c = c
     doAssert actor[].state.load() != Idle
-    pool.idleQueue[actor] = c
+    pool.idleQueue[actor] = true
     actor[].state.store(Idle)
 
 
-proc waitForWork(pool: ptr Pool): ActorCont =
+proc waitForWork(pool: ptr Pool): Actor =
   while true:
     withLock pool.workLock:
 
@@ -162,7 +162,7 @@ proc waitForWork(pool: ptr Pool): ActorCont =
         pool.workCond.wait(pool.workLock)
 
       if pool.stop:
-        return nil
+        return Actor()
       else:
         return pool.workQueue.popFirst()
 
@@ -177,28 +177,30 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     # Wait for actor or stop request
 
     bitline.logStart(wid & ".wait")
-    var c = pool.waitForWork()
+    let actor = pool.waitForWork()
     bitline.logStop(wid & ".wait")
     
-    if c.isNil:
+    if actor.isNil:
       break
     
     #assertIsolated(c)  # TODO: cps refs child
 
     # Trampoline the continuation
+        
 
     bitline.log "worker." & $worker.id & ".run":
+      var c = move actor[].c
       try:
         {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
           while not c.isNil and not c.fn.isNil:
             c = c.fn(c).ActorCont
       except:
-        pool.exit(c.actor, erError, getCurrentException())
+        pool.exit(actor, erError, getCurrentException())
 
     # Cleanup if continuation has finished
 
     if c.finished:
-      pool.exit(c.actor, erNormal)
+      pool.exit(actor, erNormal)
       
 
 proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =
@@ -220,7 +222,8 @@ proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false):
   # Add the new actor to the work queue
   withLock pool.workLock:
     #assertIsolated(c)
-    pool.workQueue.addLast c
+    actor[].c = move c
+    pool.workQueue.addLast actor
     pool.workCond.signal()
 
   actor
