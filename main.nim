@@ -93,7 +93,7 @@ proc main() {.actor.} =
   let idCalculator = hatch calculator()
   
   var i = 0
-  while i < 5:
+  while i < 5000:
     let i2 = hatch bob(idCalculator, 5)
     inc kids
     inc i
@@ -144,9 +144,10 @@ proc main2() {.actor.} =
 
 proc ticker(evq: Actor, id: int) {.actor.} = 
   var i = 0
-  while i < 10:
-    evq.sleep(0.5)
-    stderr.write($id & " ")
+  while i < 100:
+    evq.sleep(0.1)
+    if id == 0:
+      stderr.write($id & " ")
     inc i
 
 
@@ -154,14 +155,15 @@ proc main3() {.actor.} =
 
   let evq = newEvq()
 
-  var actors: seq[Actor]
   var i = 0
-  while i < 10000:
-    echo "hatch ", i
-    actors.add hatch ticker(evq, i)
+  while i < 1000:
+    discard hatch ticker(evq, i)
+    #echo "posthatch ", i
     inc i
 
+  echo "hatched"
   evq.sleep(5)
+  echo "killing"
   kill(evq)
 
 

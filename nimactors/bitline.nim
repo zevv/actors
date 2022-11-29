@@ -11,7 +11,7 @@ when optBitline != "":
 
   proc log(line: string) =
     fLog.write $epochTime() & " " & line & "\n"
-    fLog.flushFile()
+    #fLog.flushFile()
 
   proc log(tag, msg: string) =
     log(tag & " " & msg)

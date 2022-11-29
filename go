@@ -13,11 +13,11 @@ run()
 		perf)
 			nim c ${nimflags} -d:danger main.nim && perf record -g ./main
 			;;
-		asan)
+		tsan)
 			nim c ${nimflags} -d:danger --passC:-fsanitize=thread --passL:-fsanitize=thread main.nim && ./main
 			;;
 		asan)
-			nim c ${nimflags} -d:danger --passC:-fsanitize=thread --passL:-fsanitize=thread main.nim && ./main
+			nim c ${nimflags} -d:danger --passC:-fsanitize=address --passL:-fsanitize=address main.nim && ./main
 			;;
 		valgrind)
 			nim c ${nimflags} -d:danger main.nim  && valgrind --quiet --leak-check=full --show-leak-kinds=all ./main

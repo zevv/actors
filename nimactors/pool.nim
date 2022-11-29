@@ -56,7 +56,7 @@ proc kill*(pool: ptr Pool, id: Actor)
 
 # Stringifications
 
-proc `$`*(pool: ref Pool): string =
+proc `$`*(pool: ptr Pool): string =
   return "pool"
 
 proc `$`*(c: ActorCont): string =
@@ -72,6 +72,7 @@ proc `$`*(worker: ref Worker | ptr Worker): string =
 # Misc helper procs
 
 proc pass*(cFrom, cTo: ActorCont): ActorCont =
+  #echo &"pass #{cast[int](cFrom[].addr):#x} #{cast[int](cTo[].addr):#x}"
   cTo.pool = cFrom.pool
   cTo.actor = cFrom.actor
   cTo
@@ -81,7 +82,6 @@ proc toWorkQueue*(pool: ptr Pool, actor: Actor) =
   # If the target continuation is in the sleep queue, move it to the work queue
   withLock pool.workLock:
     if actor in pool.idleQueue:
-      #echo "wake ", dst
       let c = pool.idleQueue[actor]
       pool.idleQueue.del(actor)
       pool.workQueue.addLast(c)
@@ -203,14 +203,15 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       pool.exit(c.actor, erNormal)
       
 
-proc hatchAux*(pool: ref Pool | ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =
+proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =
 
   assert not isNil(c)
+  assertIsolated(c)
 
   pool.actorPidCounter += 1
   let actor = newActor(pool.actorPidCounter.load(), parent)
 
-  c.pool = pool[].addr
+  c.pool = pool
   c.actor = actor
 
   if linked:
@@ -229,9 +230,8 @@ proc hatchAux*(pool: ref Pool | ptr Pool, c: sink ActorCont, parent=Actor(), lin
 
 # Create and initialize a new actor
 
-template hatch*(pool: ref Pool, c: typed): Actor =
-  var actor = ActorCont(whelp c)
-  hatchAux(pool, actor)
+template hatch*(pool: ref Pool, what: typed): Actor =
+  hatchAux(pool[].addr, ActorCont(whelp what))
 
 
 # Create pool with actor queue and worker threads
@@ -255,7 +255,7 @@ proc newPool*(nWorkers: int): ref Pool =
 # Wait until all actors in the pool have died and cleanup
 
 proc join*(pool: ref Pool) =
-
+  
   while true:
     let n = pool.actorCount.load()
     let mi = mallinfo2()

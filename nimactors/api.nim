@@ -74,22 +74,21 @@ proc kill*(c: ActorCont, dst: Actor) {.cpsVoodoo.} =
 # Hatch an actor from within an actor
 
 proc hatchAux*(c: ActorCont, newActor: sink ActorCont, link: bool): Actor {.cpsVoodoo.} =
+  assertIsolated(c, 1)
   c.pool.hatchAux(newActor, c.actor, link)
 
 
 # Hatches the given actor and returns its AID.
 
 template hatch*(what: typed): Actor =
-  let c = ActorCont(whelp what)
-  hatchAux(c, false)
+  hatchAux(ActorCont(whelp what), false)
 
 
 # Hatches the given actor passing, links it to the current process, and returns
 # its PID.
 
 template hatchLinked*(what: typed): Actor =
-  let c = ActorCont(whelp what)
-  hatchAux(c, true)
+  hatchAux(ActorCont(whelp what))
 
 
 # Returns the AID of the calling actor

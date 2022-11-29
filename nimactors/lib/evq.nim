@@ -79,7 +79,7 @@ proc calculateTimeout(evq: EvqImpl): cint =
     result = max(result, 0)
 
 
-proc handleTimers(evq: EvqImpl) {.actor.} =
+template handleTimers(evq: EvqImpl) =
   evq.updateNow()
   while evq.timers.len > 0 and evq.now >= evq.timers[0].time:
     let t = evq.timers.pop
@@ -113,9 +113,8 @@ proc evqActor*(fdWake: cint) {.actor.} =
       let fd = es[i].data.u64.cint
 
       if fd == fdWake:
-        var b: char
-        discard posix.read(fdWake, b.addr, 1)
-        evq.handleMessage recv()
+        var b: array[1024, char]
+        var n = posix.read(fdWake, b.addr, sizeof(b))
 
       elif fd in evq.ios:
         let io = evq.ios[fd]
@@ -126,6 +125,14 @@ proc evqActor*(fdWake: cint) {.actor.} =
 
       inc i
 
+    # Handle messages
+    
+    while true:
+      let m = tryRecv()
+      if not m.isNil:
+        evq.handleMessage(m)
+      else:
+        break
 
 # Public API
 
@@ -143,6 +150,7 @@ proc delFd*(c: ActorCont, evq: Actor, fd: cint) {.cpsVoodoo.} =
 
 
 proc sleep*(evq: Actor, interval: float) {.actor.} =
+#template sleep*(evq: Actor, interval: float) =
   evq.addTimer(interval)
   discard recv(MessageEvqEvent)
 
@@ -158,11 +166,16 @@ proc newEvq*(): Actor {.actor.} =
 
   var fds: array[2, cint]
   discard pipe(fds)
-  
-  let actor = hatch evqActor(fds[0])
+  discard fcntl(fds[1], F_SETFL, O_NONBLOCK)
+ 
+
+  var actor = hatch evqActor(fds[0])
+
+  #defer:
+  #  reset actor
+
   setSignalFd(actor, fds[1])
-
   actor
-
+  
 
 

@@ -66,11 +66,18 @@ proc isIsolated*[T: ref](v: T): bool =
   else:
     true
 
-proc assertIsolated*[T:ref](v: T) =
+proc getRc*[T:ref](v: T): int =
+  let p = cast[pointer](v)
+  if p != nil:
+    result = head(p).rc shr rcShift
+
+proc assertIsolated*[T:ref](v: T, expected=0) =
   let p = cast[pointer](v)
   if p != nil:
     let rc = head(p).rc shr rcShift
-    if rc != 0:
+    #echo "=== ", typeof(T), " ", rc
+    if rc > expected:
+      echo "isolation: ", typeof(T), " ", rc
       raise newException(NotIsolatedError, $v)
   when false:
     {.cast(gcsafe).}: # whiner

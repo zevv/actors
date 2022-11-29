@@ -124,20 +124,21 @@ proc tryRecv2*(actor: Actor, filter: MailFilter = nil): Message =
           msg = nil
         break
       first = false
-  #echo &"  tryRecv {id}: {result}"
+  #echo &"  tryRecv {actor}: {result}"
 
 
 proc send*(dst: Actor, src: Actor, msg: sink Message) =
-  assertIsolated(msg)
+  #assertIsolated(msg)
   #echo &"  send {src} -> {dst}: {msg}"
   msg.src = src
 
   # Deliver the message in the target mailbox
+  var signalFd = 0.cint
   withLock dst:
     dst[].mailbox.addLast(msg)
     bitline.logValue("actor." & $dst & ".mailbox", dst[].mailbox.len)
-    # If the target has a signalFd, wake it
-    if dst[].signalFd != 0.cint:
-      let b: char = 'x'
-      discard posix.write(dst[].signalFd, b.addr, 1)
+    signalFd = dst[].signalFd
+  if signalFd != 0.cint:
+    let b = 'x'
+    discard posix.write(signalFd, b.addr, sizeof(b))
 
