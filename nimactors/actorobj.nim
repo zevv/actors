@@ -80,10 +80,11 @@ proc `[]`*(actor: Actor): var ActorObject =
   actor.p[]
 
 
-proc newActor*(pid: int, parent: Actor): Actor =
+proc newActor*(pid: int, parent: Actor, c: Continuation): Actor =
   let actor = create(ActorObject)
   actor.pid = pid
   actor.state.store(New)
+  actor.c = c
   actor.rc.store(0)
   actor.lock.initLock()
   actor.parent = parent
