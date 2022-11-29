@@ -19,8 +19,6 @@ import mallinfo
 import actorobj
 
 
-# FFI for glib mallinfo()
-
 type 
 
   Pool* = object
@@ -94,9 +92,10 @@ proc send*(pool: ptr Pool, src, dst: Actor, msg: sink Message) =
   pool.toWorkQueue(dst)
 
 
-proc setSignalFd*(pool: ptr Pool, actor: Actor, fd: cint) =
-  withLock actor:
-    actor[].signalFd = fd
+# Kill an actor
+
+proc kill*(pool: ptr Pool, id: Actor) =
+  pool.send(Actor(), id, MessageKill())
 
 
 # Signal termination of an actor; inform the parent and kill any linked
@@ -124,7 +123,7 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
 
   for id in links:
     {.cast(gcsafe).}:
-      kill(id)
+      pool.kill(id)
     
 
   pool.actorCount -= 1

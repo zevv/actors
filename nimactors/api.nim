@@ -90,11 +90,10 @@ template hatchLinked*(what: typed): Actor =
 proc self*(c: ActorCont): Actor {.cpsVoodoo.} =
   c.actor
 
-# Register a signaling file descriptor for this actors mailbox
 
-proc setSignalFd*(c: ActorCont, fd: cint) {.cpsVoodoo.} =
-  c.pool.setSignalFd(c.actor, fd)
+# Kill
 
-proc setSignalFd*(c: ActorCont, id: Actor, fd: cint) {.cpsVoodoo.} =
-  c.pool.setSignalFd(id, fd)
+proc kill*(c: ActorCont, actor: Actor) {.cpsVoodoo.} =
+  c.pool.kill(actor)
+
 

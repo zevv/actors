@@ -167,12 +167,8 @@ proc newEvq*(): Actor {.actor.} =
   var fds: array[2, cint]
   discard pipe(fds)
   discard fcntl(fds[1], F_SETFL, O_NONBLOCK)
- 
 
   var actor = hatch evqActor(fds[0])
-
-  #defer:
-  #  reset actor
 
   setSignalFd(actor, fds[1])
   actor

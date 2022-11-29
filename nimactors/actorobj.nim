@@ -151,9 +151,8 @@ proc sendAux*(dst: Actor, src: Actor, msg: sink Message) =
     bitline.logValue("actor." & $dst & ".mailbox", dst[].mailbox.len)
 
 
-# Kill an actor
-
-proc kill*(id: Actor) =
-  sendAux(Actor(), id, MessageKill())
+proc setSignalFd*(actor: Actor, fd: cint) =
+  withLock actor:
+    actor[].signalFd = fd
 
 
