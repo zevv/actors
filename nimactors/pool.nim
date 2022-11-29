@@ -127,11 +127,10 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
 proc toIdleQueue*(pool: ptr Pool, c: sink ActorCont) =
   #assertIsolated(c) # TODO
   var killed = false
-  withLock pool.workLock:
-    let actor = c.actor
-    actor[].c = c
-    doAssert actor[].state.load() != Idle
-    actor[].state.store(Idle)
+  let actor = c.actor
+  assert actor[].state.load() != Idle
+  actor[].c = move c
+  actor[].state.store(Idle)
 
 
 proc waitForWork(pool: ptr Pool): Actor =

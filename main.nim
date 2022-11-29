@@ -156,7 +156,7 @@ proc main3() {.actor.} =
   let evq = newEvq()
 
   var i = 0
-  while i < 1000:
+  while i < 50_000:
     discard hatch ticker(evq, i)
     #echo "posthatch ", i
     inc i
