@@ -155,3 +155,10 @@ proc send*(dst: Actor, src: Actor, msg: sink Message) =
     let b = 'x'
     discard posix.write(signalFd, b.addr, sizeof(b))
 
+
+# Kill an actor
+
+proc kill*(id: Actor) =
+  send(Actor(), id, MessageKill())
+
+

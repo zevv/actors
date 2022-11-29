@@ -36,8 +36,6 @@ type
     stop: bool
     workCond: Cond
     workQueue: Deque[Actor] # actor that needs to be run asap on any worker
-    idleQueue: Table[Actor, bool] # actor that is waiting for messages
-    killReq: Table[Actor, bool]
 
   ActorCont* = ref object of Continuation
     actor*: Actor
@@ -49,10 +47,6 @@ type
     pool: ptr Pool
 
 
-# Forward declerations
-
-proc kill*(pool: ptr Pool, id: Actor)
-
 
 # Stringifications
 
@@ -60,10 +54,10 @@ proc `$`*(pool: ptr Pool): string =
   return "pool"
 
 proc `$`*(c: ActorCont): string =
-  if c.actor.p.isNil:
+  if c.isNil:
     return "actorcont.nil"
   else:
-    return "actorcont." & $(c.actor.p[].pid)
+    return "actorcont." & $c.actor
 
 proc `$`*(worker: ref Worker | ptr Worker): string =
   return "worker." & $worker.id
@@ -79,14 +73,12 @@ proc pass*(cFrom, cTo: ActorCont): ActorCont =
 
 
 proc toWorkQueue*(pool: ptr Pool, actor: Actor) =
-  # If the target continuation is in the sleep queue, move it to the work queue
-  withLock pool.workLock:
-    if actor in pool.idleQueue:
-      doAssert actor[].state.load() != Running
-      actor[].state.store(Running)
-      pool.idleQueue.del(actor)
-      pool.workQueue.addLast(actor)
-      pool.workCond.signal()
+  if not actor.isNil:
+    withLock pool.workLock:
+      if actor[].state.load() != Running:
+        actor[].state.store(Running)
+        pool.workQueue.addLast(actor)
+        pool.workCond.signal()
 
 
 # Send a message from src to dst
@@ -107,7 +99,7 @@ proc setSignalFd*(pool: ptr Pool, actor: Actor, fd: cint) =
 proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = nil) =
   #assertIsolated(c)  # TODO: cps refs child
 
-  echo &"Actor {actor} terminated, reason: {reason}"
+  echo &"Actor {actor} terminated, reason: {reason} {actor[].c.ActorCont}"
   if not ex.isNil:
     echo "Exception: ", ex.msg
     echo ex.getStackTrace()
@@ -124,21 +116,10 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
 
   for id in links:
     {.cast(gcsafe).}:
-      pool.kill(id)
+      kill(id)
     
 
   pool.actorCount -= 1
-
-
-# Kill an actor
-
-proc kill*(pool: ptr Pool, id: Actor) =
-  withLock pool.workLock:
-    # Mark the actor as to-be-killed so it will be caught before trampolining
-    # or when jielding
-    pool.killReq[id] = true
-    # Send the actor a message so it will wake up if it is in the idle pool
-  pool.send(Actor(), id, MessageKill())
 
 
 # Move actor to the idle queue
@@ -150,7 +131,6 @@ proc toIdleQueue*(pool: ptr Pool, c: sink ActorCont) =
     let actor = c.actor
     actor[].c = c
     doAssert actor[].state.load() != Idle
-    pool.idleQueue[actor] = true
     actor[].state.store(Idle)
 
 

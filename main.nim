@@ -93,7 +93,7 @@ proc main() {.actor.} =
   let idCalculator = hatch calculator()
   
   var i = 0
-  while i < 5000:
+  while i < 500:
     let i2 = hatch bob(idCalculator, 5)
     inc kids
     inc i

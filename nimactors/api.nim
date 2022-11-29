@@ -65,12 +65,6 @@ proc send*(c: ActorCont, dst: Actor, msg: sink Message) {.cpsVoodoo.} =
   c.pool.send(c.actor, dst, msg)
 
 
-# Send a kill message to another actor
-
-proc kill*(c: ActorCont, dst: Actor) {.cpsVoodoo.} =
-  c.pool.kill(dst)
-
-
 # Hatch an actor from within an actor
 
 proc hatchAux*(c: ActorCont, newActor: sink ActorCont, link: bool): Actor {.cpsVoodoo.} =
