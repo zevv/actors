@@ -14,7 +14,7 @@ import cps
 type
 
   State* = enum
-    New, Idle, Running
+    New, Idle, Running, Dead
 
   ActorObject* = object
     rc*: Atomic[int]
@@ -140,25 +140,20 @@ proc tryRecv2*(actor: Actor, filter: MailFilter = nil): Message =
   #echo &"  tryRecv {actor}: {result}"
 
 
-proc send*(dst: Actor, src: Actor, msg: sink Message) =
+proc sendAux*(dst: Actor, src: Actor, msg: sink Message) =
   #assertIsolated(msg)
   #echo &"  send {src} -> {dst}: {msg}"
   msg.src = src
 
   # Deliver the message in the target mailbox
-  var signalFd = 0.cint
   withLock dst:
     dst[].mailbox.addLast(msg)
     bitline.logValue("actor." & $dst & ".mailbox", dst[].mailbox.len)
-    signalFd = dst[].signalFd
-  if signalFd != 0.cint:
-    let b = 'x'
-    discard posix.write(signalFd, b.addr, sizeof(b))
 
 
 # Kill an actor
 
 proc kill*(id: Actor) =
-  send(Actor(), id, MessageKill())
+  sendAux(Actor(), id, MessageKill())
 
 

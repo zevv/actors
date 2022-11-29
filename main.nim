@@ -156,7 +156,7 @@ proc main3() {.actor.} =
   let evq = newEvq()
 
   var i = 0
-  while i < 50_000:
+  while i < 50:
     discard hatch ticker(evq, i)
     #echo "posthatch ", i
     inc i
@@ -170,7 +170,7 @@ proc main3() {.actor.} =
 
 
 proc go() =
-  var pool = newPool(16)
+  var pool = newPool(4)
 
   discard pool.hatch main()
   #discard pool.hatch main2()

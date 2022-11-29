@@ -9,6 +9,7 @@ import std/posix
 import std/atomics
 import std/times
 import std/hashes
+import std/posix
 
 import cps
 
@@ -80,11 +81,16 @@ proc toWorkQueue*(pool: ptr Pool, actor: Actor) =
         pool.workQueue.addLast(actor)
         pool.workCond.signal()
 
+        let fd = actor[].signalFd
+        if fd != 0.cint:
+          let b = 'x'
+          discard posix.write(fd, b.addr, sizeof(b))
+
 
 # Send a message from src to dst
 
 proc send*(pool: ptr Pool, src, dst: Actor, msg: sink Message) =
-  dst.send(src, msg)
+  dst.sendAux(src, msg)
   pool.toWorkQueue(dst)
 
 
@@ -98,6 +104,8 @@ proc setSignalFd*(pool: ptr Pool, actor: Actor, fd: cint) =
 
 proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = nil) =
   #assertIsolated(c)  # TODO: cps refs child
+
+  actor[].state.store(Dead)
 
   echo &"Actor {actor} terminated, reason: {reason} {actor[].c.ActorCont}"
   if not ex.isNil:
