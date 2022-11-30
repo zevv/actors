@@ -2,7 +2,7 @@
 
 set -e
 
-nimflags="-d:usemalloc --gc:arc --debugger:native"
+nimflags="--verbosity:0 -d:usemalloc --mm:arc --debugger:native"
 
 run()
 {
@@ -24,22 +24,32 @@ run()
 			nim c ${nimflags} -d:danger --passC:-fsanitize=address --passL:-fsanitize=address ${src} && ${bin}
 			;;
 		valgrind)
-			nim c ${nimflags} -d:danger ${src}  && valgrind --quiet --leak-check=full --show-leak-kinds=all ${bin}
+			nim c ${nimflags} -d:danger ${src}  && valgrind --error-exitcode=255 --quiet --leak-check=full --show-leak-kinds=all ${bin}
 			;;
 		valgrind2)
-			nim c ${nimflags} -d:danger ${src}  && valgrind --quiet ${bin}
+			nim c ${nimflags} -d:danger ${src}  && valgrind --error-exitcode=255 --quiet ${bin}
 			;;
 		helgrind)
-			nim c ${nimflags} -d:danger ${src}  && valgrind --quiet --tool=helgrind ${bin}
+			nim c ${nimflags} -d:danger ${src}  && valgrind --error-exitcode=255 --quiet --tool=helgrind ${bin}
 			;;
 		drd)
-			nim c ${nimflags} -d:danger ${src}  && valgrind --quiet --tool=drd --suppressions=./misc/valgrind-drd-suppressions ${bin}
+			nim c ${nimflags} -d:danger ${src}  && valgrind --error-exitcode=255 --quiet --tool=drd --suppressions=./misc/valgrind-drd-suppressions ${bin}
 			;;
 		bitline)
 			nim c ${nimflags} -d:danger -d:optbitline:bitline.log ${src} && ${bin}
 			;;
 		debug)
 			nim c ${nimflags} ${src} && ${bin}
+			;;
+		all)
+			./go valgrind tests/texit
+			./go helgrind tests/texit
+			./go drd tests/texit
+			./go tsan tests/texit
+			./go asan tests/texit
+			./go debug tests/texit
+			./go run tests/tmillions
+			figlet "all good"
 			;;
 	esac
 }
