@@ -251,6 +251,11 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
   if not parent.isnil:
     parent.send(MessageExit(actor: actor, reason: reason, ex: ex), Actor())
 
+  # Drop the continuation
+  if not actor[].c.isNil:
+    actor[].c.disarm
+    actor[].c = nil
+
   # Kill linked processes
   for id in links:
     kill(id)
@@ -284,7 +289,6 @@ proc workerThread(worker: ptr Worker) {.thread.} =
             while not c.isNil and not c.fn.isNil:
               c = c.fn(c).ActorCont
         except:
-          disarm c
           pool.exit(actor, Error, getCurrentException())
 
       # Cleanup if continuation has finished or was killed
@@ -314,7 +318,7 @@ proc tryRecv*(actor: Actor, filter: MailFilter = nil): Message =
 proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =
 
   assert not isNil(c)
-  assertIsolated(c)
+  #assertIsolated(c)
 
   let a = create(ActorObject)
   a.pid = pool.actorPidCounter.fetchAdd(1)
