@@ -243,6 +243,7 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
   var links: seq[Actor]
 
   withLock actor:
+    actor[].mailbox.clear()
     parent = move actor[].parent
     links = move actor[].links
 
@@ -283,6 +284,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
             while not c.isNil and not c.fn.isNil:
               c = c.fn(c).ActorCont
         except:
+          disarm c
           pool.exit(actor, Error, getCurrentException())
 
       # Cleanup if continuation has finished or was killed
