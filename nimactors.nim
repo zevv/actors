@@ -23,6 +23,7 @@ import nimactors/api
 export actor
 export hatch
 export hatchAux
+export jield
 export hatchLinked
 export kill
 export recv

@@ -2,6 +2,7 @@
 import std/locks
 import std/macros
 import std/deques
+import std/atomics
 
 import cps
 
@@ -21,24 +22,23 @@ proc toIdleQueue*(c: sink ActorCont): ActorCont {.cpsMagic.} =
   c.pool.toIdleQueue(c)
 
 
+proc jield*(c: ActorCont): ActorCont {.cpsMagic.} =
+  if not c.actor[].killReq.load():
+    result = c
+
+
 # Receive a message, nonblocking
 
 proc tryRecv*(c: ActorCont): Message {.cpsVoodoo.} =
   result = c.actor.tryRecv2()
-  if result of MessageKill:
-    result = nil # will cause a jield, catching the kill
 
 proc tryRecv*(c: ActorCont, srcId: Actor): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg.src == srcId
   result = c.actor.tryRecv2(filter)
-  if result of MessageKill:
-    result = nil # will cause a jield, catching the kill
 
 proc tryRecv*(c: ActorCont, T: typedesc): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg of T
   result = c.actor.tryRecv2(filter)
-  if result of MessageKill:
-    result = nil # will cause a jield, catching the kill
 
 # Receive a message, blocking
 

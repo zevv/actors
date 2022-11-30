@@ -79,23 +79,24 @@ proc toWorkQueue*(pool: ptr Pool, actor: Actor) =
         pool.workQueue.addLast(actor)
         pool.workCond.signal()
 
-        let fd = actor[].signalFd
-        if fd != 0.cint:
-          let b = 'x'
-          discard posix.write(fd, b.addr, sizeof(b))
-
 
 # Send a message from src to dst
 
 proc send*(pool: ptr Pool, src, dst: Actor, msg: sink Message) =
   dst.sendAux(src, msg)
   pool.toWorkQueue(dst)
+  let fd = dst[].signalFd
+  if fd != 0.cint:
+    let b = 'x'
+    discard posix.write(fd, b.addr, sizeof(b))
 
 
 # Kill an actor
 
-proc kill*(pool: ptr Pool, id: Actor) =
-  pool.send(Actor(), id, MessageKill())
+proc kill*(pool: ptr Pool, actor: Actor) =
+  echo "killing"
+  actor[].killReq.store(true)
+  pool.send(Actor(), actor, MessageKill())
 
 
 # Signal termination of an actor; inform the parent and kill any linked
@@ -117,9 +118,10 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
   withLock actor:
     parent = move actor[].parent
     links = move actor[].links
-  
-  pool.send(Actor(), parent,
-            MessageExit(id: actor, reason: reason, ex: ex))
+ 
+  if not parent.isnil:
+    pool.send(Actor(), parent,
+              MessageExit(id: actor, reason: reason, ex: ex))
 
   for id in links:
     {.cast(gcsafe).}:
@@ -133,7 +135,6 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
 
 proc toIdleQueue*(pool: ptr Pool, c: sink ActorCont) =
   #assertIsolated(c) # TODO
-  var killed = false
   let actor = c.actor
   assert actor[].state.load() != Idle
   actor[].c = move c
@@ -168,6 +169,9 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     
     if actor.isNil:
       break
+
+    echo actor[].state.load()
+    doAssert actor[].state.load() == Running
     
     #assertIsolated(c)  # TODO: cps refs child
 
@@ -187,6 +191,10 @@ proc workerThread(worker: ptr Worker) {.thread.} =
 
     if c.finished:
       pool.exit(actor, erNormal)
+
+    elif actor[].killReq.load():
+      echo "killed"
+      pool.exit(actor, erKilled)
       
 
 proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =
@@ -195,22 +203,24 @@ proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false):
   assertIsolated(c)
 
   pool.actorPidCounter += 1
-  let actor = newActor(pool.actorPidCounter.load(), parent, c)
+  let actor = newActor(pool.actorPidCounter.load(), parent)
 
   c.pool = pool
   c.actor = actor
+  actor[].c = move c
 
   if linked:
     link(actor, parent)
  
   pool.actorCount += 1
 
+  pool.toWorkQueue(actor)
   # Add the new actor to the work queue
-  withLock pool.workLock:
-    #assertIsolated(c)
-    actor[].c = move c
-    pool.workQueue.addLast actor
-    pool.workCond.signal()
+  #withLock pool.workLock:
+  #  #assertIsolated(c)
+  #  actor[].state.store(Running)
+  #  pool.workQueue.addLast actor
+  #  pool.workCond.signal()
 
   actor
 

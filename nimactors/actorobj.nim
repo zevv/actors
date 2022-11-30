@@ -19,6 +19,7 @@ type
   ActorObject* = object
     rc*: Atomic[int]
     state*: Atomic[State]
+    killReq*: Atomic[bool]
     c*: Continuation
     pid*: int
     parent*: Actor
@@ -83,8 +84,7 @@ proc `[]`*(actor: Actor): var ActorObject =
 proc isNil*(actor: Actor): bool =
   actor.p.isNil
 
-
-proc newActor*(pid: int, parent: Actor, c: Continuation): Actor =
+proc newActor*(pid: int, parent: Actor): Actor =
   let actor = create(ActorObject)
   actor.pid = pid
   actor.state.store(New)
@@ -112,9 +112,10 @@ proc `$`*(a: Actor): string =
 
 proc `$`*(m: Message): string =
   if not m.isNil:
-    return "msg"
+    return "msg src=" & $m.src
   else:
-    return "nil"
+    return "msg.nil"
+
 
 proc link*(a, b: Actor) =
   withLock a:
