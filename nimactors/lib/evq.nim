@@ -9,6 +9,8 @@ import ../../nimactors
 
 type
 
+  ActorEvq = distinct Actor
+
   EvqImpl = ref object
     epfd: cint
     ios: Table[cint, Io]
@@ -138,32 +140,38 @@ proc evqActor*(fdWake: cint) {.actor.} =
 # Public API
 
 
-proc addTimer*(c: ActorCont, evq: Actor, interval: float) {.cpsVoodoo.} =
-  evq.send(MessageEvqAddTimer(interval: interval), c.actor)
+proc addTimer*(c: ActorCont, evq: ActorEvq, interval: float) {.cpsVoodoo.} =
+  evq.Actor.send(MessageEvqAddTimer(interval: interval), c.actor)
 
 
-proc addFd*(c: ActorCont, evq: Actor, fd: cint, events: cshort) {.cpsVoodoo.} =
-  evq.send(MessageEvqAddFd(fd: fd, events: events), c.actor)
+proc addFd*(c: ActorCont, evq: ActorEvq, fd: cint, events: cshort) {.cpsVoodoo.} =
+  evq.Actor.send(MessageEvqAddFd(fd: fd, events: events), c.actor)
 
 
-proc delFd*(c: ActorCont, evq: Actor, fd: cint) {.cpsVoodoo.} =
-  evq.send(MessageEvqDelFd(fd: fd), c.actor)
+proc delFd*(c: ActorCont, evq: ActorEvq, fd: cint) {.cpsVoodoo.} =
+  evq.Actor.send(MessageEvqDelFd(fd: fd), c.actor)
 
 
-proc sleep*(evq: Actor, interval: float) {.actor.} =
-#template sleep*(evq: Actor, interval: float) =
+proc sleep*(evq: ActorEvq, interval: float) {.actor.} =
   evq.addTimer(interval)
   discard recv(MessageEvqEvent)
 
 
-proc read*(evq: Actor, fd: cint, buf: ptr char, size: int): int {.actor.} =
+proc read*(evq: ActorEvq, fd: cint, buf: ptr char, size: int): int {.actor.} =
   evq.addFd(fd, POLLIN)
   discard recv(MessageEvqEvent)
   result = posix.read(fd, buf, size)
   evq.delFd(fd)
 
 
-proc newEvq*(): Actor {.actor.} =
+proc kill*(actor: ActorEvq) {.borrow.}
+
+
+proc link*(actor: Actor, evq: ActorEvq) =
+  link(actor, evq.Actor)
+
+
+proc newEvq*(): ActorEvq {.actor.} =
 
   var fds: array[2, cint]
   discard pipe(fds)
@@ -172,7 +180,7 @@ proc newEvq*(): Actor {.actor.} =
   var actor = hatch evqActor(fds[0])
 
   setSignalFd(actor, fds[1])
-  actor
+  actor.ActorEvq
   
 
 

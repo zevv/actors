@@ -36,6 +36,7 @@ proc main() {.actor.} =
     doAssert not m.ex.isNil
     doAssert m.ex.msg == "flap"
 
+  echo "all good"
 
 var pool = newPool(4)
 discard pool.hatch main()
