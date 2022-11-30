@@ -14,7 +14,7 @@ import cps
 type
 
   State* = enum
-    New, Idle, Running, Dead
+    Idle, Running, Dead
 
   ActorObject* = object
     rc*: Atomic[int]
@@ -87,7 +87,7 @@ proc isNil*(actor: Actor): bool =
 proc newActor*(pid: int, parent: Actor): Actor =
   let actor = create(ActorObject)
   actor.pid = pid
-  actor.state.store(New)
+  actor.state.store(Idle)
   actor.rc.store(0)
   actor.lock.initLock()
   actor.parent = parent

@@ -74,10 +74,12 @@ proc pass*(cFrom, cTo: ActorCont): ActorCont =
 proc toWorkQueue*(pool: ptr Pool, actor: Actor) =
   if not actor.isNil:
     withLock pool.workLock:
-      if actor[].state.load() != Running:
-        actor[].state.store(Running)
+      var exp = Idle
+      if actor[].state.compareExchange(exp, Running):
         pool.workQueue.addLast(actor)
         pool.workCond.signal()
+      else:
+        echo "Not moving to work queue, state was ", exp
 
 
 # Send a message from src to dst
@@ -136,9 +138,11 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
 proc toIdleQueue*(pool: ptr Pool, c: sink ActorCont) =
   #assertIsolated(c) # TODO
   let actor = c.actor
-  assert actor[].state.load() != Idle
-  actor[].c = move c
-  actor[].state.store(Idle)
+  var exp = Running
+  if actor[].state.compareExchange(exp, Idle):
+    actor[].c = move c
+  else:
+    echo "not moving to idle, state was ", exp
 
 
 proc waitForWork(pool: ptr Pool): Actor =
@@ -213,14 +217,7 @@ proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false):
     link(actor, parent)
  
   pool.actorCount += 1
-
   pool.toWorkQueue(actor)
-  # Add the new actor to the work queue
-  #withLock pool.workLock:
-  #  #assertIsolated(c)
-  #  actor[].state.store(Running)
-  #  pool.workQueue.addLast actor
-  #  pool.workCond.signal()
 
   actor
 
