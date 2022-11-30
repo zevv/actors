@@ -40,7 +40,7 @@ template hatch*(what: typed): Actor =
 # its PID.
 
 template hatchLinked*(what: typed): Actor =
-  hatchAux(ActorCont(whelp what))
+  hatchAux(ActorCont(whelp what), true)
 
 
 # Returns the `self` reference of the calling actor

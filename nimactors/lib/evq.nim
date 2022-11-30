@@ -100,7 +100,6 @@ proc evqActor*(fdWake: cint) {.actor.} =
   discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fdWake, ee.addr)
   
   while true:
-        
     jield()
         
     var es: array[8, EpollEvent]

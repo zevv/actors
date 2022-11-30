@@ -104,8 +104,8 @@ proc main() {.actor.} =
 
     let md = recv(MessageExit)
     kids.dec
-    echo &"actor {md.id} died, reason: {md.reason}, {kids} kids left!"
-    if md.reason == erError:
+    echo &"actor {md.actor} died, reason: {md.reason}, {kids} kids left!"
+    if md.reason == Error:
       echo "An exception occured: ", md.ex.msg, "\n", md.ex.getStackTrace()
     if kids == 0:
       send(idCalculator, MsgStop())

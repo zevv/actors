@@ -20,7 +20,7 @@ proc main2() {.actor.} =
   #let id = hatch ticker(evq)
 
   echo "sleep"
-  evq.sleep(1)
+  evq.sleep(0.1)
   echo "slept"
 
   while true:
@@ -33,6 +33,9 @@ proc main2() {.actor.} =
     if buf.contains("boom"):
       raise newException(IOError, "flap")
 
+  echo "main2 is done"
+  kill evq
+  os.sleep(1000)
 
 
 proc go() =

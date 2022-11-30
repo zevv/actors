@@ -70,12 +70,12 @@ type
   MessageKill* = ref object of Message
   
   MessageExit* = ref object of Message
-    id*: Actor
+    actor*: Actor
     reason*: ExitReason
     ex*: ref Exception
 
   ExitReason* = enum
-    erNormal, erKilled, erError
+    Normal, Killed, Error
   
   MailFilter* = proc(msg: Message): bool
 
@@ -125,7 +125,12 @@ proc `$`*(worker: ref Worker | ptr Worker): string =
   return "worker." & $worker.id
 
 proc `$`*(a: Actor): string =
-  if not a.p.isNil: "actor." & $a.p[].pid else: "actor.nil"
+  result = "actor("
+  if a.isNil: 
+    result &= "nil"
+  else:
+    result &= $a.p[].pid & ":" & $a[].state.load()
+  result &= ")"
 
 proc `$`*(m: Message): string =
   if not m.isNil: "msg src=" & $m.src else: "msg.nil"
@@ -165,22 +170,20 @@ proc suspend*(actor: Actor, c: sink Continuation) =
   if actor[].state.compareExchange(exp, Idle):
     actor[].c = move c
   else:
-    echo "not moving to idle, state was ", exp
+    doAssert false
 
 
 # Move the actors continuation to the work queue to schedule execution
 # on the worker threads
 
 proc resume*(pool: ptr Pool, actor: Actor) =
-  if not actor.isNil:
-    withLock pool.workLock:
-      var exp = Idle
-      if actor[].state.compareExchange(exp, Running):
-        pool.workQueue.addLast(actor)
-        pool.workCond.signal()
-      else:
-        discard
-        #echo "Not moving to work queue, state was ", exp
+  withLock pool.workLock:
+    var exp = Idle
+    if actor[].state.compareExchange(exp, Running):
+      pool.workQueue.addLast(actor)
+      pool.workCond.signal()
+    else:
+      discard
 
 
 # Move a running process to the back of the work queue
@@ -238,9 +241,6 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
   actor[].state.store(Dead)
 
   #echo &"Actor {actor} terminated, reason: {reason} {actor[].c.ActorCont}"
-  if not ex.isNil:
-    echo "Exception: ", ex.msg
-    echo ex.getStackTrace()
 
   var parent: Actor
   var links: seq[Actor]
@@ -249,17 +249,15 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
     parent = move actor[].parent
     links = move actor[].links
 
-  # Informa the parent of the death
+  # Inform the parent of the death of their child
   if not parent.isnil:
-    parent.send(MessageExit(id: actor, reason: reason, ex: ex), Actor())
+    parent.send(MessageExit(actor: actor, reason: reason, ex: ex), Actor())
 
   # Kill linked processes
   for id in links:
     kill(id)
   
   pool.actorCount -= 1
-
-
 
 
 proc workerThread(worker: ptr Worker) {.thread.} =
@@ -278,22 +276,24 @@ proc workerThread(worker: ptr Worker) {.thread.} =
         if pool.stop:
           break
         actor = pool.workQueue.popFirst()
-    
-    # Trampoline the actor's continuation
-    bitline.log "worker." & $worker.id & ".run":
-      var c = move actor[].c
-      try:
-        {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
-          while not c.isNil and not c.fn.isNil:
-            c = c.fn(c).ActorCont
-      except:
-        pool.exit(actor, erError, getCurrentException())
 
-    # Cleanup if continuation has finished or was killed
-    if c.finished:
-      pool.exit(actor, erNormal)
-    elif actor[].killReq.load():
-      pool.exit(actor, erKilled)
+    # Trampoline the actor's continuation if in the Running state
+    if actor[].state.load() == Running:
+      bitline.log "worker." & $worker.id & ".run":
+        var c = move actor[].c
+        try:
+          {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
+            while not c.isNil and not c.fn.isNil:
+              c = c.fn(c).ActorCont
+        except:
+          pool.exit(actor, Error, getCurrentException())
+
+      # Cleanup if continuation has finished or was killed
+      if c.finished:
+        pool.exit(actor, Normal)
+
+    if actor[].killReq.load():
+      pool.exit(actor, Killed)
       
 
 # Try to receive a message, returns `nil` if no messages available or matched
@@ -373,18 +373,13 @@ proc join*(pool: ref Pool) =
         break
     os.sleep(10)
 
-  echo "all actors gone"
-
   withLock pool.workLock:
     pool.stop = true
     pool.workCond.broadcast()
-
-  echo "waiting for workers to join"
 
   for worker in pool.workers:
     worker.thread.joinThread()
     assertIsolated(worker)
 
-  echo "all workers stopped"
 
 
