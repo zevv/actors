@@ -183,6 +183,19 @@ proc resume*(pool: ptr Pool, actor: Actor) =
         #echo "Not moving to work queue, state was ", exp
 
 
+# Move a running process to the back of the work queue
+
+proc jield*(actor: Actor, c: sink ActorCont) =
+
+  assert actor[].state.load() == Running
+  let pool = c.pool
+  actor[].c = move c
+
+  withLock pool.workLock:
+    pool.workQueue.addLast(actor)
+    pool.workCond.signal()
+
+
 # Set signal file descriptor
 
 proc setSignalFd*(actor: Actor, fd: cint) =

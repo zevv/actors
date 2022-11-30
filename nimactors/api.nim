@@ -59,9 +59,8 @@ proc suspend*(c: sink ActorCont): ActorCont {.cpsMagic.} =
 # Move a running process to the back of the work queue
 
 proc jield*(c: ActorCont): ActorCont {.cpsMagic.} =
-  # TODO Fix
-  if not c.actor[].killReq.load():
-    result = c
+  c.actor.jield(c)
+  return nil
 
 
 # Send a message to another actor

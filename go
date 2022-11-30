@@ -26,6 +26,9 @@ run()
 		valgrind)
 			nim c ${nimflags} -d:danger ${src}  && valgrind --quiet --leak-check=full --show-leak-kinds=all ${bin}
 			;;
+		valgrind2)
+			nim c ${nimflags} -d:danger ${src}  && valgrind --quiet ${bin}
+			;;
 		helgrind)
 			nim c ${nimflags} -d:danger ${src}  && valgrind --quiet --tool=helgrind ${bin}
 			;;
