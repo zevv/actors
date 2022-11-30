@@ -15,12 +15,14 @@ macro actor*(n: untyped): untyped =
   n     
 
 
-# Move the given actor to the idle queue. It will only be moved aback to the
-# workQueue whenever a new message arrives
+# Yield the continuation by storing it back into the actor object; it can later
+# be resumed by calling toWorkQueue
 
-proc toIdleQueue*(c: sink ActorCont): ActorCont {.cpsMagic.} =
-  c.pool.toIdleQueue(c)
+proc suspend*(c: sink ActorCont): ActorCont {.cpsMagic.} =
+  c.actor.suspend(c)
 
+
+# Move a running process to the back of the work queue
 
 proc jield*(c: ActorCont): ActorCont {.cpsMagic.} =
   if not c.actor[].killReq.load():
@@ -47,7 +49,7 @@ template recv*(): Message =
   while msg.isNil:
     msg = tryRecv()
     if msg.isNil:
-      toIdleQueue()
+      suspend()
   msg
 
 template recv*(T: typedesc): auto =
@@ -55,7 +57,7 @@ template recv*(T: typedesc): auto =
   while msg.isNil:
     msg = tryRecv(T)
     if msg.isNil:
-      toIdleQueue()
+      suspend()
   T(msg)
 
 

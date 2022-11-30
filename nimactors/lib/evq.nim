@@ -101,6 +101,8 @@ proc evqActor*(fdWake: cint) {.actor.} =
   
   while true:
         
+    jield()
+        
     var es: array[8, EpollEvent]
     let timeout = evq.calculateTimeout()
     let n = epoll_wait(evq.epfd, es[0].addr, es.len.cint, timeout)

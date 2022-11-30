@@ -71,7 +71,7 @@ proc pass*(cFrom, cTo: ActorCont): ActorCont =
   cTo
 
 
-proc toWorkQueue*(pool: ptr Pool, actor: Actor) =
+proc resume*(pool: ptr Pool, actor: Actor) =
   if not actor.isNil:
     withLock pool.workLock:
       var exp = Idle
@@ -86,7 +86,7 @@ proc toWorkQueue*(pool: ptr Pool, actor: Actor) =
 
 proc send*(pool: ptr Pool, src, dst: Actor, msg: sink Message) =
   dst.sendAux(src, msg)
-  pool.toWorkQueue(dst)
+  pool.resume(dst)
   let fd = dst[].signalFd
   if fd != 0.cint:
     let b = 'x'
@@ -96,7 +96,6 @@ proc send*(pool: ptr Pool, src, dst: Actor, msg: sink Message) =
 # Kill an actor
 
 proc kill*(pool: ptr Pool, actor: Actor) =
-  echo "killing"
   actor[].killReq.store(true)
   pool.send(Actor(), actor, MessageKill())
 
@@ -128,21 +127,8 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
   for id in links:
     {.cast(gcsafe).}:
       pool.kill(id)
-    
-
+  
   pool.actorCount -= 1
-
-
-# Move actor to the idle queue
-
-proc toIdleQueue*(pool: ptr Pool, c: sink ActorCont) =
-  #assertIsolated(c) # TODO
-  let actor = c.actor
-  var exp = Running
-  if actor[].state.compareExchange(exp, Idle):
-    actor[].c = move c
-  else:
-    echo "not moving to idle, state was ", exp
 
 
 proc waitForWork(pool: ptr Pool): Actor =
@@ -174,13 +160,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     if actor.isNil:
       break
 
-    echo actor[].state.load()
-    doAssert actor[].state.load() == Running
-    
-    #assertIsolated(c)  # TODO: cps refs child
-
     # Trampoline the continuation
-        
 
     bitline.log "worker." & $worker.id & ".run":
       var c = move actor[].c
@@ -195,9 +175,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
 
     if c.finished:
       pool.exit(actor, erNormal)
-
     elif actor[].killReq.load():
-      echo "killed"
       pool.exit(actor, erKilled)
       
 
@@ -217,7 +195,7 @@ proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false):
     link(actor, parent)
  
   pool.actorCount += 1
-  pool.toWorkQueue(actor)
+  pool.resume(actor)
 
   actor
 

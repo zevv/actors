@@ -29,7 +29,7 @@ export kill
 export recv
 export self
 export send
-export toIdleQueue
+export suspend
 export tryRecv
 export setSignalFd
 

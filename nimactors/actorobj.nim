@@ -24,7 +24,6 @@ type
     pid*: int
     parent*: Actor
 
-
     lock*: Lock
     links*: seq[Actor]
     mailBox*: Deque[Message]
@@ -84,14 +83,26 @@ proc `[]`*(actor: Actor): var ActorObject =
 proc isNil*(actor: Actor): bool =
   actor.p.isNil
 
+
+# Move the continuation back into the actor; the actor can later be
+# resumed to continue the continuation
+
+proc suspend*(actor: Actor, c: sink Continuation) =
+  var exp = Running
+  if actor[].state.compareExchange(exp, Idle):
+    actor[].c = move c
+  else:
+    echo "not moving to idle, state was ", exp
+
+
 proc newActor*(pid: int, parent: Actor): Actor =
-  let actor = create(ActorObject)
-  actor.pid = pid
-  actor.state.store(Idle)
-  actor.rc.store(0)
-  actor.lock.initLock()
-  actor.parent = parent
-  result.p = actor
+  let a = create(ActorObject)
+  a.pid = pid
+  a.rc.store(0)
+  a.lock.initLock()
+  a.parent = parent
+  a.state.store(Idle)
+  result.p = a
   result.log("new")
 
 
@@ -147,9 +158,11 @@ proc sendAux*(dst: Actor, src: Actor, msg: sink Message) =
   msg.src = src
 
   # Deliver the message in the target mailbox
+  var count: int
   withLock dst:
     dst[].mailbox.addLast(msg)
-    bitline.logValue("actor." & $dst & ".mailbox", dst[].mailbox.len)
+    count = dst[].mailbox.len
+  bitline.logValue("actor." & $dst & ".mailbox", count)
 
 
 proc setSignalFd*(actor: Actor, fd: cint) =

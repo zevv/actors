@@ -173,7 +173,7 @@ proc go() =
   var pool = newPool(4)
 
   discard pool.hatch main()
-  #discard pool.hatch main2()
+  discard pool.hatch main2()
   #discard pool.hatch main3()
 
   pool.join()
