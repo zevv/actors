@@ -2,18 +2,17 @@
 import cps
 export cps
 
-import nimactors/actorobj
+
+import nimactors/pool
 export `$`
 export ExitReason
 export Actor
 export Message
 export link
-
-import nimactors/pool
 export ActorCont
-export hatch
 export hatchAux
 export join
+export kill
 export MessageExit
 export newPool
 export pass

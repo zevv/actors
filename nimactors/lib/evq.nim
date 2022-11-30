@@ -140,15 +140,15 @@ proc evqActor*(fdWake: cint) {.actor.} =
 
 
 proc addTimer*(c: ActorCont, evq: Actor, interval: float) {.cpsVoodoo.} =
-  send(c.pool, c.actor, evq, MessageEvqAddTimer(interval: interval))
+  evq.send(MessageEvqAddTimer(interval: interval), c.actor)
 
 
 proc addFd*(c: ActorCont, evq: Actor, fd: cint, events: cshort) {.cpsVoodoo.} =
-  send(c.pool, c.actor, evq, MessageEvqAddFd(fd: fd, events: events))
+  evq.send(MessageEvqAddFd(fd: fd, events: events), c.actor)
 
 
 proc delFd*(c: ActorCont, evq: Actor, fd: cint) {.cpsVoodoo.} =
-  send(c.pool, c.actor, evq, MessageEvqDelFd(fd: fd))
+  evq.send(MessageEvqDelFd(fd: fd), c.actor)
 
 
 proc sleep*(evq: Actor, interval: float) {.actor.} =

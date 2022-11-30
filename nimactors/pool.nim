@@ -16,7 +16,6 @@ import cps
 import bitline
 import isisolated
 import mallinfo
-import actorobj
 
 
 type 
@@ -45,6 +44,73 @@ type
     thread: Thread[ptr Worker]
     pool: ptr Pool
 
+  State* = enum
+    Idle, Running, Dead
+
+  ActorObject* = object
+    rc*: Atomic[int]
+    pool*: ptr Pool
+    state*: Atomic[State]
+    killReq*: Atomic[bool]
+    c*: Continuation
+    pid*: int
+    parent*: Actor
+
+    lock*: Lock
+    links*: seq[Actor]
+    mailBox*: Deque[Message]
+    signalFd*: cint
+
+  Actor* = object
+    p*: ptr ActorObject
+
+  Message* = ref object of Rootobj
+    src*: Actor
+
+  MessageKill* = ref object of Message
+  
+  MessageExit* = ref object of Message
+    id*: Actor
+    reason*: ExitReason
+    ex*: ref Exception
+
+  ExitReason* = enum
+    erNormal, erKilled, erError
+  
+  MailFilter* = proc(msg: Message): bool
+
+
+
+# `Actor` is a custom atomic RC type
+
+proc `=destroy`*(actor: var Actor)
+
+proc `=copy`*(dest: var Actor, actor: Actor) =
+  if not actor.p.isNil:
+    actor.p[].rc.atomicInc()
+  if not dest.p.isNil:
+    `=destroy`(dest)
+  dest.p = actor.p
+
+
+proc `=destroy`*(actor: var Actor) =
+  if not actor.p.isNil:
+    if actor.p[].rc.load(moAcquire) == 0:
+      `=destroy`(actor.p[])
+      deallocShared(actor.p)
+    else:
+      actor.p[].rc.atomicDec()
+
+
+proc `[]`*(actor: Actor): var ActorObject =
+  assert not actor.p.isNil
+  actor.p[]
+
+
+proc isNil*(actor: Actor): bool =
+  actor.p.isNil
+
+
 
 
 # Stringifications
@@ -53,16 +119,19 @@ proc `$`*(pool: ptr Pool): string =
   return "pool"
 
 proc `$`*(c: ActorCont): string =
-  if c.isNil:
-    return "actorcont.nil"
-  else:
-    return "actorcont." & $c.actor
+  if c.isNil: "actorcont.nil" else: "actorcont." & $c.actor
 
 proc `$`*(worker: ref Worker | ptr Worker): string =
   return "worker." & $worker.id
 
+proc `$`*(a: Actor): string =
+  if not a.p.isNil: "actor." & $a.p[].pid else: "actor.nil"
 
-# Misc helper procs
+proc `$`*(m: Message): string =
+  if not m.isNil: "msg src=" & $m.src else: "msg.nil"
+
+
+# CPS `pass` implementation
 
 proc pass*(cFrom, cTo: ActorCont): ActorCont =
   #echo &"pass #{cast[int](cFrom[].addr):#x} #{cast[int](cTo[].addr):#x}"
@@ -70,6 +139,37 @@ proc pass*(cFrom, cTo: ActorCont): ActorCont =
   cTo.actor = cFrom.actor
   cTo
 
+
+# Misc helpers
+
+template withLock(actor: Actor, code: untyped) =
+  if not actor.p.isNil:
+    withLock actor[].lock:
+      code
+  else:
+    echo "empty actor"
+
+
+proc link*(a, b: Actor) =
+  withLock a:
+    a[].links.add b
+  withLock b:
+    b[].links.add a
+
+
+# Move the continuation back into the actor; the actor can later be
+# resumed to continue the continuation
+
+proc suspend*(actor: Actor, c: sink Continuation) =
+  var exp = Running
+  if actor[].state.compareExchange(exp, Idle):
+    actor[].c = move c
+  else:
+    echo "not moving to idle, state was ", exp
+
+
+# Move the actors continuation to the work queue to schedule execution
+# on the worker threads
 
 proc resume*(pool: ptr Pool, actor: Actor) =
   if not actor.isNil:
@@ -79,15 +179,31 @@ proc resume*(pool: ptr Pool, actor: Actor) =
         pool.workQueue.addLast(actor)
         pool.workCond.signal()
       else:
-        echo "Not moving to work queue, state was ", exp
+        discard
+        #echo "Not moving to work queue, state was ", exp
+
+
+# Set signal file descriptor
+
+proc setSignalFd*(actor: Actor, fd: cint) =
+  withLock actor:
+    actor[].signalFd = fd
 
 
 # Send a message from src to dst
 
-proc send*(pool: ptr Pool, src, dst: Actor, msg: sink Message) =
-  dst.sendAux(src, msg)
-  pool.resume(dst)
-  let fd = dst[].signalFd
+proc send*(actor: Actor, msg: sink Message, src: Actor) =
+
+  msg.src = src
+
+  var count: int
+  withLock actor:
+    actor[].mailbox.addLast(msg)
+    count = actor[].mailbox.len
+  bitline.logValue("actor." & $actor & ".mailbox", count)
+
+  actor[].pool.resume(actor)
+  let fd = actor[].signalFd
   if fd != 0.cint:
     let b = 'x'
     discard posix.write(fd, b.addr, sizeof(b))
@@ -95,9 +211,9 @@ proc send*(pool: ptr Pool, src, dst: Actor, msg: sink Message) =
 
 # Kill an actor
 
-proc kill*(pool: ptr Pool, actor: Actor) =
+proc kill*(actor: Actor) =
   actor[].killReq.store(true)
-  pool.send(Actor(), actor, MessageKill())
+  actor.send(MessageKill(), Actor())
 
 
 # Signal termination of an actor; inform the parent and kill any linked
@@ -108,7 +224,7 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
 
   actor[].state.store(Dead)
 
-  echo &"Actor {actor} terminated, reason: {reason} {actor[].c.ActorCont}"
+  #echo &"Actor {actor} terminated, reason: {reason} {actor[].c.ActorCont}"
   if not ex.isNil:
     echo "Exception: ", ex.msg
     echo ex.getStackTrace()
@@ -119,29 +235,18 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
   withLock actor:
     parent = move actor[].parent
     links = move actor[].links
- 
-  if not parent.isnil:
-    pool.send(Actor(), parent,
-              MessageExit(id: actor, reason: reason, ex: ex))
 
+  # Informa the parent of the death
+  if not parent.isnil:
+    parent.send(MessageExit(id: actor, reason: reason, ex: ex), Actor())
+
+  # Kill linked processes
   for id in links:
-    {.cast(gcsafe).}:
-      pool.kill(id)
+    kill(id)
   
   pool.actorCount -= 1
 
 
-proc waitForWork(pool: ptr Pool): Actor =
-  while true:
-    withLock pool.workLock:
-
-      while pool.workQueue.len == 0 and not pool.stop:
-        pool.workCond.wait(pool.workLock)
-
-      if pool.stop:
-        return Actor()
-      else:
-        return pool.workQueue.popFirst()
 
 
 proc workerThread(worker: ptr Worker) {.thread.} =
@@ -151,17 +256,17 @@ proc workerThread(worker: ptr Worker) {.thread.} =
 
   while true:
 
-    # Wait for actor or stop request
-
-    bitline.logStart(wid & ".wait")
-    let actor = pool.waitForWork()
-    bitline.logStop(wid & ".wait")
+    # Wait for the next actor to be available in the work queue
+    var actor: Actor
+    bitline.log(wid & ".wait"):
+      withLock pool.workLock:
+        while pool.workQueue.len == 0 and not pool.stop:
+          pool.workCond.wait(pool.workLock)
+        if pool.stop:
+          break
+        actor = pool.workQueue.popFirst()
     
-    if actor.isNil:
-      break
-
-    # Trampoline the continuation
-
+    # Trampoline the actor's continuation
     bitline.log "worker." & $worker.id & ".run":
       var c = move actor[].c
       try:
@@ -171,21 +276,44 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       except:
         pool.exit(actor, erError, getCurrentException())
 
-    # Cleanup if continuation has finished
-
+    # Cleanup if continuation has finished or was killed
     if c.finished:
       pool.exit(actor, erNormal)
     elif actor[].killReq.load():
       pool.exit(actor, erKilled)
       
 
+# Try to receive a message, returns `nil` if no messages available or matched
+# the passed filter
+
+proc tryRecv*(actor: Actor, filter: MailFilter = nil): Message =
+  withLock actor:
+    var first = true
+    for msg in actor[].mailbox.mitems:
+      if not msg.isNil and (filter.isNil or filter(msg)):
+        result = msg
+        if first:
+          actor[].mailbox.popFirst()
+        else:
+          msg = nil
+        break
+      first = false
+
+
 proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =
 
   assert not isNil(c)
   assertIsolated(c)
 
-  pool.actorPidCounter += 1
-  let actor = newActor(pool.actorPidCounter.load(), parent)
+  let a = create(ActorObject)
+  a.pid = pool.actorPidCounter.fetchAdd(1)
+  a.pool = pool
+  a.rc.store(0)
+  a.lock.initLock()
+  a.parent = parent
+  a.state.store(Idle)
+  var actor = Actor()
+  actor.p = a
 
   c.pool = pool
   c.actor = actor
@@ -198,12 +326,6 @@ proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false):
   pool.resume(actor)
 
   actor
-
-
-# Create and initialize a new actor
-
-template hatch*(pool: ref Pool, what: typed): Actor =
-  hatchAux(pool[].addr, ActorCont(whelp what))
 
 
 # Create pool with actor queue and worker threads
