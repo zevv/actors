@@ -125,12 +125,11 @@ proc `$`*(worker: ref Worker | ptr Worker): string =
   return "worker." & $worker.id
 
 proc `$`*(a: Actor): string =
-  result = "actor("
+  result = "actor."
   if a.isNil: 
     result &= "nil"
   else:
-    result &= $a.p[].pid & ":" & $a[].state.load()
-  result &= ")"
+    result &= $a.p[].pid & "(" & $a[].state.load() & ")"
 
 proc `$`*(m: Message): string =
   if not m.isNil: "msg src=" & $m.src else: "msg.nil"
@@ -236,11 +235,9 @@ proc kill*(actor: Actor) =
 # actors.
 
 proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = nil) =
-  #assertIsolated(c)  # TODO: cps refs child
 
-  actor[].state.store(Dead)
-
-  #echo &"Actor {actor} terminated, reason: {reason} {actor[].c.ActorCont}"
+  #var statePrev = actor[].state.exchange(Dead)
+  #echo &"Actor {actor} terminated, state was {$statePrev}, reason: {reason}"
 
   var parent: Actor
   var links: seq[Actor]
@@ -291,9 +288,8 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       # Cleanup if continuation has finished or was killed
       if c.finished:
         pool.exit(actor, Normal)
-
-    if actor[].killReq.load():
-      pool.exit(actor, Killed)
+      elif actor[].killReq.load():
+        pool.exit(actor, Killed)
       
 
 # Try to receive a message, returns `nil` if no messages available or matched
