@@ -289,7 +289,15 @@ proc workerThread(worker: ptr Worker) {.thread.} =
             while not c.isNil and not c.fn.isNil:
               c = c.fn(c).ActorCont
         except:
-          pool.exit(actor, Error, getCurrentException())
+          # getCurrentException() returns a ref to a global .threadvar, which is
+          # not safe to carry around. As a workaround we create a fresh
+          # exception and copy some of the fields # TODO what about the stack
+          # frames?
+          let ex = getCurrentException()
+          let exNew = new Exception
+          exNew.name = ex.name
+          exNew.msg = ex.msg
+          pool.exit(actor, Error, exNew)
 
       # Cleanup if continuation has finished or was killed
       if c.finished:
