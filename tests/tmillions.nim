@@ -17,24 +17,28 @@ proc main4d(n: int) {.actor.} =
   discard
 
 proc main4c(n: int) {.actor.} =
+  ntotal += 1
   var i = 0
   while i < n:
     discard hatch main4d(n)
     inc i
 
 proc main4b(n: int) {.actor.} =
+  ntotal += 1
   var i = 0
   while i < n:
     discard hatch main4c(n)
     inc i
     
 proc main4a(n: int) {.actor.} =
+  ntotal += 1
   var i = 0
   while i < n:
     discard hatch main4b(n)
     inc i
 
 proc main4(n: int) {.actor.} =
+  ntotal += 1
   var i = 0
   while i < n:
     stderr.write(".")
@@ -46,10 +50,17 @@ proc go() =
   let n = 50
   var pool = newPool(4)
   discard pool.hatch main4(n)
+  echo "hatched"
+
+  while true:
+    let n = ntotal.load()
+    echo n
+    if n == 6377551:
+      break
+    os.sleep(250)
+
   pool.join()
-  doAssert ntotal.load() == n ^ 4
-  echo ""
-  echo "all good, n = ", ntotal.load()
+  echo "all good"
 
 go()
 
