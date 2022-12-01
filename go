@@ -1,6 +1,7 @@
 #!/bin/sh
 
 set -e
+set -x
 
 nimflags="--verbosity:0 -d:usemalloc --mm:arc --debugger:native"
 
