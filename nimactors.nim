@@ -4,32 +4,30 @@ export cps
 
 
 import nimactors/pool
-export `$`
-export ExitReason
 export Actor
-export Message
-export link
 export ActorCont
+export ExitReason
+export Message
+export MessageExit
+export Pool
+export `$`
 export hatchAux
 export join
 export kill
-export MessageExit
+export link
 export newPool
 export pass
-export Pool
 
 import nimactors/api
 export actor
 export hatch
 export hatchAux
-export jield
 export hatchLinked
+export jield
 export kill
 export recv
-#export recvIt
 export self
 export send
+export setSignalFd
 export suspend
 export tryRecv
-export setSignalFd
-
