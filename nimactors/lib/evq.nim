@@ -9,7 +9,7 @@ import ../../nimactors
 
 type
 
-  ActorEvq = distinct Actor
+  Evq* = distinct Actor
 
   EvqImpl = ref object
     epfd: cint
@@ -140,38 +140,50 @@ proc evqActor*(fdWake: cint) {.actor.} =
 # Public API
 
 
-proc addTimer*(c: ActorCont, evq: ActorEvq, interval: float) {.cpsVoodoo.} =
+proc addTimer*(c: ActorCont, evq: Evq, interval: float) {.cpsVoodoo.} =
   evq.Actor.send(MessageEvqAddTimer(interval: interval), c.actor)
 
 
-proc addFd*(c: ActorCont, evq: ActorEvq, fd: cint, events: cshort) {.cpsVoodoo.} =
+proc addFd*(c: ActorCont, evq: Evq, fd: cint, events: cshort) {.cpsVoodoo.} =
   evq.Actor.send(MessageEvqAddFd(fd: fd, events: events), c.actor)
 
 
-proc delFd*(c: ActorCont, evq: ActorEvq, fd: cint) {.cpsVoodoo.} =
+proc delFd*(c: ActorCont, evq: Evq, fd: cint) {.cpsVoodoo.} =
   evq.Actor.send(MessageEvqDelFd(fd: fd), c.actor)
 
 
-proc sleep*(evq: ActorEvq, interval: float) {.actor.} =
+proc sleep*(evq: Evq, interval: float) {.actor.} =
   evq.addTimer(interval)
   discard recv(MessageEvqEvent)
 
 
-proc read*(evq: ActorEvq, fd: cint, buf: ptr char, size: int): int {.actor.} =
+proc read*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
   evq.addFd(fd, POLLIN)
   discard recv(MessageEvqEvent)
   result = posix.read(fd, buf, size)
   evq.delFd(fd)
 
 
-proc kill*(actor: ActorEvq) {.borrow.}
+proc write*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
+  var done = 0
+  evq.addFd(fd, POLLOUT)
+  while done < size:
+    discard recv(MessageEvqEvent)
+    let p = cast[ptr char](cast[Byteaddress](buf) + done)
+    let r = posix.write(fd, p, size-done)
+    done += r
+  evq.delFd(fd)
+  result = done
 
 
-proc link*(actor: Actor, evq: ActorEvq) =
+proc kill*(actor: Evq) {.borrow.}
+
+
+proc link*(actor: Actor, evq: Evq) =
   link(actor, evq.Actor)
 
 
-proc newEvq*(): ActorEvq {.actor.} =
+proc newEvq*(): Evq {.actor.} =
 
   var fds: array[2, cint]
   discard pipe(fds)
@@ -180,7 +192,7 @@ proc newEvq*(): ActorEvq {.actor.} =
   var actor = hatch evqActor(fds[0])
 
   setSignalFd(actor, fds[1])
-  actor.ActorEvq
+  actor.Evq
   
 
 

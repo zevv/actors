@@ -209,6 +209,8 @@ proc setSignalFd*(actor: Actor, fd: cint) =
 
 proc send*(actor: Actor, msg: sink Message, src: Actor) =
 
+  #echo "  ", src, " -> ", actor
+
   msg.src = src
 
   var count: int
