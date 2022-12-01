@@ -15,27 +15,13 @@ import nimactors/lib/evq
 proc main2() {.actor.} =
   
   let evq = newEvq()
-  link(self(), evq)
-  
-  #let id = hatch ticker(evq)
 
   echo "sleep"
   evq.sleep(0.1)
   echo "slept"
-
-  while true:
-    var buf = newString(1024)
-    let r = evq.read(0, buf[0].addr, 1024)
-    if r <= 0:
-      break
-    buf.setLen r
-    echo "=== ", buf
-    if buf.contains("boom"):
-      raise newException(IOError, "flap")
-
-  echo "main2 is done"
+  evq.sleep(0.1)
+  echo "killing evq"
   kill evq
-  os.sleep(1000)
 
 
 proc go() =

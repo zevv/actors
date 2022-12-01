@@ -1,6 +1,5 @@
 
 import os
-import strformat
 import std/macros
 import std/locks
 import std/deques
@@ -193,9 +192,10 @@ proc jield*(actor: Actor, c: sink ActorCont) =
   let pool = c.pool
   actor[].c = move c
 
-  withLock pool.workLock:
-    pool.workQueue.addLast(actor)
-    pool.workCond.signal()
+  if not actor[].killReq.load():
+    withLock pool.workLock:
+      pool.workQueue.addLast(actor)
+      pool.workCond.signal()
 
 
 # Set signal file descriptor
