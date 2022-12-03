@@ -21,6 +21,7 @@ proc main2() {.actor.} =
   echo "slept"
   evq.sleep(0.1)
   echo "killing evq"
+  os.sleep(1000)
   kill evq
 
 

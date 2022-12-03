@@ -3,6 +3,7 @@ import os
 import std/macros
 import std/locks
 import std/deques
+import std/strformat
 import std/tables
 import std/posix
 import std/atomics
@@ -43,19 +44,15 @@ type
     thread: Thread[ptr Worker]
     pool: ptr Pool
 
-  State* = enum
-    Idle, Running, Dead
-
   ActorObject* = object
     rc*: Atomic[int]
     pool*: ptr Pool
-    state*: Atomic[State]
     killReq*: Atomic[bool]
-    c*: Continuation
     pid*: int
     parent*: Actor
 
     lock*: Lock
+    c*: Continuation
     links*: seq[Actor]
     mailBox*: Deque[Message]
     signalFd*: cint
@@ -110,6 +107,8 @@ proc isNil*(actor: Actor): bool =
   actor.p.isNil
 
 
+proc isRunning(actor: Actor): bool = actor[].c.isNil
+proc isSuspended(actor: Actor): bool = not actor.isRunning()
 
 
 # Stringifications
@@ -128,7 +127,8 @@ proc `$`*(a: Actor): string =
   if a.isNil: 
     result &= "nil"
   else:
-    result &= $a.p[].pid & "(" & $a[].state.load() & ")"
+    let state = if a.isRunning: "running" else: "suspended"
+    result &= $a.p[].pid & "(" & state & ")"
 
 proc `$`*(m: Message): string =
   if not m.isNil: "msg src=" & $m.src else: "msg.nil"
@@ -143,20 +143,12 @@ proc pass*(cFrom, cTo: ActorCont): ActorCont =
   cTo
 
 
-# Misc helpers
+# Link two processes: if one goes down, the other gets killed as well
 
-template withLock(actor: Actor, code: untyped) =
-  if not actor.p.isNil:
-    withLock actor[].lock:
-      code
-  else:
-    echo "empty actor"
-
-
-proc link*(a, b: Actor) =
-  withLock a:
+proc link*(a: Actor, b: Actor) =
+  withLock a[].lock:
     a[].links.add b
-  withLock b:
+  withLock b[].lock:
     b[].links.add a
 
 
@@ -164,44 +156,47 @@ proc link*(a, b: Actor) =
 # resumed to continue the continuation
 
 proc suspend*(actor: Actor, c: sink Continuation) =
-  var exp = Running
-  if actor[].state.compareExchange(exp, Idle):
+  withLock actor[].lock:
+    doAssert actor.isRunning()
     actor[].c = move c
-  else:
-    doAssert false
 
 
 # Move the actors continuation to the work queue to schedule execution
 # on the worker threads
 
 proc resume*(pool: ptr Pool, actor: Actor) =
+  var fd: cint
   withLock pool.workLock:
-    var exp = Idle
-    if actor[].state.compareExchange(exp, Running):
-      pool.workQueue.addLast(actor)
-      pool.workCond.signal()
-    else:
-      discard
+    withLock actor[].lock:
+      if actor.isSuspended():
+        pool.workQueue.addLast(actor)
+        pool.workCond.signal()
+      #echo actor, ": resumed"
+      fd = actor[].signalFd
+
+  if fd != 0.cint:
+    let b = 'x'
+    discard posix.write(fd, b.addr, sizeof(b))
 
 
 # Move a running process to the back of the work queue
 
 proc jield*(actor: Actor, c: sink ActorCont) =
-
-  assert actor[].state.load() == Running
   let pool = c.pool
-  actor[].c = move c
-
-  if not actor[].killReq.load():
-    withLock pool.workLock:
-      pool.workQueue.addLast(actor)
-      pool.workCond.signal()
+  withLock pool.workLock:
+    withLock actor[].lock:
+      doAssert actor.isRunning()
+      if not actor[].killReq.load():
+        actor[].c = move c
+        pool.workQueue.addLast(actor)
+        pool.workCond.signal()
+        #echo actor, ": jielded"
 
 
 # Set signal file descriptor
 
 proc setSignalFd*(actor: Actor, fd: cint) =
-  withLock actor:
+  withLock actor[].lock:
     actor[].signalFd = fd
 
 
@@ -214,16 +209,12 @@ proc send*(actor: Actor, msg: sink Message, src: Actor) =
   msg.src = src
 
   var count: int
-  withLock actor:
+  withLock actor[].lock:
     actor[].mailbox.addLast(msg)
     count = actor[].mailbox.len
   bitline.logValue("actor." & $actor & ".mailbox", count)
 
   actor[].pool.resume(actor)
-  let fd = actor[].signalFd
-  if fd != 0.cint:
-    let b = 'x'
-    discard posix.write(fd, b.addr, sizeof(b))
 
 
 # Kill an actor
@@ -239,12 +230,12 @@ proc kill*(actor: Actor) =
 proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = nil) =
 
   #var statePrev = actor[].state.exchange(Dead)
-  #echo &"Actor {actor} terminated, state was {$statePrev}, reason: {reason}"
+  #echo &"Actor {actor} terminated, reason: {reason}"
 
   var parent: Actor
   var links: seq[Actor]
 
-  withLock actor:
+  withLock actor[].lock:
     actor[].mailbox.clear()
     parent = move actor[].parent
     links = move actor[].links
@@ -254,7 +245,7 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
     parent.send(MessageExit(actor: actor, reason: reason, ex: ex), Actor())
 
   # Drop the continuation
-  if not actor[].c.isNil:
+  if actor.isSuspended():
     actor[].c.disarm
     actor[].c = nil
 
@@ -274,6 +265,8 @@ proc workerThread(worker: ptr Worker) {.thread.} =
 
     # Wait for the next actor to be available in the work queue
     var actor: Actor
+    var c: Continuation
+
     bitline.log(wid & ".wait"):
       withLock pool.workLock:
         while pool.workQueue.len == 0 and not pool.stop:
@@ -281,38 +274,44 @@ proc workerThread(worker: ptr Worker) {.thread.} =
         if pool.stop:
           break
         actor = pool.workQueue.popFirst()
+        withLock actor[].lock:
+          c = move actor[].c
 
-    # Trampoline the actor's continuation if in the Running state
-    if actor[].state.load() == Running:
-      bitline.log "worker." & $worker.id & ".run":
-        var c = move actor[].c
-        try:
-          {.cast(gcsafe).}: # Error: 'workerThread' is not GC-safe as it performs an indirect call here
-            while not c.isNil and not c.fn.isNil:
-              c = c.fn(c).ActorCont
-        except:
-          # getCurrentException() returns a ref to a global .threadvar, which is
-          # not safe to carry around. As a workaround we create a fresh
-          # exception and copy some of the fields # TODO what about the stack
-          # frames?
-          let ex = getCurrentException()
-          let exNew = new Exception
-          exNew.name = ex.name
-          exNew.msg = ex.msg
-          pool.exit(actor, Error, exNew)
+    bitline.logStart $worker & ".run"
 
-      # Cleanup if continuation has finished or was killed
-      if c.finished:
-        pool.exit(actor, Normal)
-      elif actor[].killReq.load():
-        pool.exit(actor, Killed)
-      
+    try:
+    
+      # Trampoline the actor's continuation if in the Running state
+
+      {.cast(gcsafe).}:
+        while not c.isNil and not c.fn.isNil:
+          c = c.fn(c).ActorCont
+
+    except:
+      # getCurrentException() returns a ref to a global .threadvar, which is
+      # not safe to carry around. As a workaround we create a fresh
+      # exception and copy some of the fields # TODO what about the stack
+      # frames?
+      let ex = getCurrentException()
+      let exNew = new Exception
+      exNew.name = ex.name
+      exNew.msg = ex.msg
+      pool.exit(actor, Error, exNew)
+
+    # Cleanup if continuation has finished or was killed
+    if c.finished:
+      pool.exit(actor, Normal)
+    elif actor[].killReq.load():
+      pool.exit(actor, Killed)
+    
+    bitline.logStop $worker & ".run"
+
 
 # Try to receive a message, returns `nil` if no messages available or matched
 # the passed filter
 
 proc tryRecv*(actor: Actor, filter: MailFilter = nil): Message =
-  withLock actor:
+  withLock actor[].lock:
     var first = true
     for msg in actor[].mailbox.mitems:
       if not msg.isNil and (filter.isNil or filter(msg)):
@@ -336,7 +335,6 @@ proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false):
   a.rc.store(0)
   a.lock.initLock()
   a.parent = parent
-  a.state.store(Idle)
   var actor = Actor()
   actor.p = a
 

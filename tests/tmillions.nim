@@ -48,7 +48,7 @@ proc main4(n: int) {.actor.} =
 
 proc go() =
   let n = 50
-  var pool = newPool(4)
+  var pool = newPool(16)
   discard pool.hatch main4(n)
   echo "hatched"
 

@@ -39,7 +39,7 @@ proc writer(evq: Evq, fd: cint, bytes: int) {.actor.} =
 proc main() {.actor.} =
  
   let evq = newEvq()
-  let pipes = 8
+  let pipes = 16
   var i = 0
 
   while i < pipes:
