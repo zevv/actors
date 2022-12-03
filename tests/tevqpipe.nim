@@ -23,6 +23,7 @@ proc reader(evq: Evq, fd: cint, bytes: int) {.actor.} =
   while bytesReceived < bytes:
     var buf = newString(1024 * 1024)
     let r = evq.read(fd, buf[0].addr, buf.len)
+    echo r
     if r > 0:
       bytesReceived += r
 
@@ -39,7 +40,7 @@ proc writer(evq: Evq, fd: cint, bytes: int) {.actor.} =
 proc main() {.actor.} =
  
   let evq = newEvq()
-  let pipes = 16
+  let pipes = 8
   var i = 0
 
   while i < pipes:

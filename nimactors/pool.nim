@@ -44,6 +44,9 @@ type
     thread: Thread[ptr Worker]
     pool: ptr Pool
 
+  State = enum
+    Active, Killed, Dead
+
   ActorObject* = object
     rc*: Atomic[int]
     pool*: ptr Pool
@@ -51,7 +54,7 @@ type
     parent*: Actor
 
     lock*: Lock
-    killReq*: bool
+    state*: State
     c*: Continuation
     links*: seq[Actor]
     mailBox*: Deque[Message]
@@ -171,7 +174,6 @@ proc resume*(pool: ptr Pool, actor: Actor) =
       if actor.isSuspended():
         pool.workQueue.addLast(actor)
         pool.workCond.signal()
-      #echo actor, ": resumed"
       fd = actor[].signalFd
 
   if fd != 0.cint:
@@ -186,11 +188,9 @@ proc jield*(actor: Actor, c: sink ActorCont) =
   withLock pool.workLock:
     withLock actor[].lock:
       doAssert actor.isRunning()
-      if not actor[].killReq:
-        actor[].c = move c
-        pool.workQueue.addLast(actor)
-        pool.workCond.signal()
-        #echo actor, ": jielded"
+      actor[].c = move c
+      pool.workQueue.addLast(actor)
+      pool.workCond.signal()
 
 
 # Set signal file descriptor
@@ -221,7 +221,8 @@ proc send*(actor: Actor, msg: sink Message, src: Actor) =
 
 proc kill*(actor: Actor) =
   withLock actor[].lock:
-    actor[].killReq = true
+    if actor[].state == Active:
+      actor[].state = Killed
   actor.send(MessageKill(), Actor())
 
 
@@ -236,6 +237,7 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
   var links: seq[Actor]
 
   withLock actor[].lock:
+    actor[].state = Dead
     actor[].mailbox.clear()
     parent = move actor[].parent
     links = move actor[].links
@@ -277,6 +279,8 @@ proc workerThread(worker: ptr Worker) {.thread.} =
         actor = pool.workQueue.popFirst()
         withLock actor[].lock:
           c = move actor[].c
+          if actor[].state == Dead:
+            continue
 
     bitline.log $worker & ".run":
 
@@ -303,10 +307,10 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       if c.finished:
         pool.exit(actor, Normal)
       else:
-        var killReq: bool
+        var state: State
         withLock actor[].lock:
-          killReq = actor[].killReq
-        if killReq:
+          state = actor[].state
+        if state == Killed:
           pool.exit(actor, Killed)
       
 
