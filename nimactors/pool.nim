@@ -230,7 +230,6 @@ proc kill*(actor: Actor) =
 
 proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = nil) =
 
-  #var statePrev = actor[].state.exchange(Dead)
   #echo &"Actor {actor} terminated, reason: {reason}"
 
   var parent: Actor
@@ -269,6 +268,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     var c: Continuation
 
     bitline.log(wid & ".wait"):
+
       withLock pool.workLock:
         while pool.workQueue.len == 0 and not pool.stop:
           pool.workCond.wait(pool.workLock)
@@ -278,39 +278,37 @@ proc workerThread(worker: ptr Worker) {.thread.} =
         withLock actor[].lock:
           c = move actor[].c
 
-    bitline.logStart $worker & ".run"
+    bitline.log $worker & ".run":
 
-    try:
-    
-      # Trampoline the actor's continuation if in the Running state
+      try:
+      
+        # Trampoline the actor's continuation if in the Running state
 
-      {.cast(gcsafe).}:
-        while not c.isNil and not c.fn.isNil:
-          c = c.fn(c).ActorCont
+        {.cast(gcsafe).}:
+          while not c.isNil and not c.fn.isNil:
+            c = c.fn(c)
 
-    except:
-      # getCurrentException() returns a ref to a global .threadvar, which is
-      # not safe to carry around. As a workaround we create a fresh
-      # exception and copy some of the fields # TODO what about the stack
-      # frames?
-      let ex = getCurrentException()
-      let exNew = new Exception
-      exNew.name = ex.name
-      exNew.msg = ex.msg
-      pool.exit(actor, Error, exNew)
+      except:
+        # getCurrentException() returns a ref to a global .threadvar, which is
+        # not safe to carry around. As a workaround we create a fresh
+        # exception and copy some of the fields # TODO what about the stack
+        # frames?
+        let ex = getCurrentException()
+        let exNew = new Exception
+        exNew.name = ex.name
+        exNew.msg = ex.msg
+        pool.exit(actor, Error, exNew)
 
-    # Cleanup if continuation has finished or was killed
-    if c.finished:
-      pool.exit(actor, Normal)
-    else:
-      var killReq: bool
-      withLock actor[].lock:
-        killReq = actor[].killReq
-      if killReq:
-        pool.exit(actor, Killed)
-    
-    bitline.logStop $worker & ".run"
-
+      # Cleanup if continuation has finished or was killed
+      if c.finished:
+        pool.exit(actor, Normal)
+      else:
+        var killReq: bool
+        withLock actor[].lock:
+          killReq = actor[].killReq
+        if killReq:
+          pool.exit(actor, Killed)
+      
 
 # Try to receive a message, returns `nil` if no messages available or matched
 # the passed filter
