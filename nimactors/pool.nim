@@ -47,11 +47,11 @@ type
   ActorObject* = object
     rc*: Atomic[int]
     pool*: ptr Pool
-    killReq*: Atomic[bool]
     pid*: int
     parent*: Actor
 
     lock*: Lock
+    killReq*: bool
     c*: Continuation
     links*: seq[Actor]
     mailBox*: Deque[Message]
@@ -186,7 +186,7 @@ proc jield*(actor: Actor, c: sink ActorCont) =
   withLock pool.workLock:
     withLock actor[].lock:
       doAssert actor.isRunning()
-      if not actor[].killReq.load():
+      if not actor[].killReq:
         actor[].c = move c
         pool.workQueue.addLast(actor)
         pool.workCond.signal()
@@ -220,7 +220,8 @@ proc send*(actor: Actor, msg: sink Message, src: Actor) =
 # Kill an actor
 
 proc kill*(actor: Actor) =
-  actor[].killReq.store(true)
+  withLock actor[].lock:
+    actor[].killReq = true
   actor.send(MessageKill(), Actor())
 
 
@@ -301,8 +302,12 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     # Cleanup if continuation has finished or was killed
     if c.finished:
       pool.exit(actor, Normal)
-    elif actor[].killReq.load():
-      pool.exit(actor, Killed)
+    else:
+      var killReq: bool
+      withLock actor[].lock:
+        killReq = actor[].killReq
+      if killReq:
+        pool.exit(actor, Killed)
     
     bitline.logStop $worker & ".run"
 
