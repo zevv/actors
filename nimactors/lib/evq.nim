@@ -24,16 +24,16 @@ type
 
   MessageEvqAddTimer* = ref object of Message
     interval: float
-  
+
   MessageEvqAddFd* = ref object of Message
     fd: cint
     events: cshort
-  
+
   MessageEvqDelFd* = ref object of Message
     fd: cint
-  
+
   MessageEvqEvent* = ref object of Message
-  
+
 
 template `<`(a, b: Timer): bool =
   a.time < b.time
@@ -55,12 +55,12 @@ proc handleMessage(evq: EvqImpl, m: Message) {.actor.} =
     let m = m.MessageEvqDelFd
     discard epoll_ctl(evq.epfd, EPOLL_CTL_DEL, m.fd.cint, nil)
     evq.fds.del(m.fd)
-  
+
   else:
     discard
     #echo "unhandled message"
 
-   
+
 proc updateNow(evq: EvqImpl) =
     evq.now = getMonoTime().ticks.float / 1.0e9
 
@@ -86,15 +86,15 @@ template handleTimers(evq: EvqImpl) =
 # send() when a message is posted to the mailbox
 
 proc evqActor*(fdWake: cint) {.actor.} =
-  
+
   var evq = EvqImpl(epfd: epoll_create(1))
- 
-  # 
+
+  #
   var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: fdWake.uint64))
   discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fdWake, ee.addr)
-  
+
   while true:
-        
+
     var es: array[8, EpollEvent]
     let timeout = evq.calculateTimeout()
     #echo "epollin"
@@ -103,7 +103,7 @@ proc evqActor*(fdWake: cint) {.actor.} =
 
     evq.now = getMonoTime().ticks.float / 1.0e9
     evq.handleTimers()
-    
+
     var i = 0
     while i < n:
       let fd = es[i].data.u64.cint
@@ -119,14 +119,14 @@ proc evqActor*(fdWake: cint) {.actor.} =
       inc i
 
     # Handle messages
-    
+
     while true:
       let m = tryRecv()
       if not m.isNil:
         evq.handleMessage(m)
       else:
         break
-    
+
     jield()
 
 
@@ -198,6 +198,6 @@ proc newEvq*(): Evq {.actor.} =
 
   setSignalFd(actor, fds[1])
   actor.Evq
-  
+
 
 
