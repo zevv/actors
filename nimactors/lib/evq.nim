@@ -64,7 +64,8 @@ proc handleMessage(evq: EvqImpl, m: Message) {.actor.} =
     evq.ios.del(fd)
   
   else:
-    echo "unhandled message"
+    discard
+    #echo "unhandled message"
 
    
 proc updateNow(evq: EvqImpl) =

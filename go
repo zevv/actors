@@ -53,6 +53,7 @@ run()
 			./go asan tests/texit
 			./go debug tests/texit
 			./go run tests/tmillions
+			./go run tests/tevqpipe
 			figlet "all good"
 			;;
 	esac
