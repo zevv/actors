@@ -1,4 +1,14 @@
 
+#
+#
+#
+#
+#
+#
+#
+#
+#
+#
 import os
 import std/macros
 import std/locks
@@ -45,7 +55,7 @@ type
     pool: ptr Pool
 
   State = enum
-    Active, Killed, Dead
+    Suspended, Queued, Running, Killed, Dead
 
   ActorObject* = object
     rc*: Atomic[int]
@@ -53,10 +63,10 @@ type
     pid*: int
     parent*: Actor
     msgQueue*: Deque[Message]
-    state*: State
     links*: seq[Actor]
 
     lock*: Lock
+    state*: State
     sigQueue*: Deque[Signal]
     c*: Continuation
     signalFd*: cint
@@ -115,8 +125,6 @@ proc isNil*(actor: Actor): bool =
   actor.p.isNil
 
 
-proc isRunning(actor: Actor): bool = actor[].c.isNil
-proc isSuspended(actor: Actor): bool = not actor.isRunning()
 
 
 # Stringifications
@@ -191,9 +199,10 @@ proc handleSignals(actor: Actor) =
 proc trySuspend*(actor: Actor, c: sink Continuation): bool =
 
   withLock actor[].lock:
-    doAssert actor.isRunning()
+    doAssert actor[].state == Running
     if actor[].sigQueue.len == 0:
       actor[].c = move c
+      actor[].state = Suspended
       return true
 
   actor.handleSignals()
@@ -208,7 +217,8 @@ proc resume*(pool: ptr Pool, actor: Actor) =
   var fd: cint
   withLock pool.workLock:
     withLock actor[].lock:
-      if actor.isSuspended():
+      if actor[].state == Suspended:
+        actor[].state = Queued
         pool.workQueue.addLast(actor)
         pool.workCond.signal()
       fd = actor[].signalFd
@@ -221,11 +231,13 @@ proc resume*(pool: ptr Pool, actor: Actor) =
 # Move a running process to the back of the work queue
 
 proc jield*(actor: Actor, c: sink ActorCont) =
+  actor.handleSignals()
   let pool = c.pool
   withLock pool.workLock:
     withLock actor[].lock:
-      doAssert actor.isRunning()
+      doAssert actor[].state == Running
       if actor[].state != Killed:
+        actor[].state = Queued
         actor[].c = move c
         pool.workQueue.addLast(actor)
         pool.workCond.signal()
@@ -259,31 +271,30 @@ proc kill*(actor: Actor) =
 proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = nil) =
 
   #echo &"Actor {actor} terminated, reason: {reason}"
-
-  actor.handleSignals()
-
-  var parent: Actor
-  var links: seq[Actor]
-
-  actor[].msgQueue.clear()
-
+  
   withLock actor[].lock:
     actor[].state = Dead
-    actor[].sigQueue.clear()
-    links = move actor[].links
+
+  actor.handleSignals()
 
   # Inform the parent of the death of their child
   if not actor[].parent.isnil:
     actor[].parent.send(MessageExit(actor: actor, reason: reason, ex: ex), Actor())
-
-  # Drop the continuation
-  if actor.isSuspended():
-    actor[].c.disarm
-    actor[].c = nil
-
+  
   # Kill linked processes
-  for id in links:
-    kill(id)
+  for link in actor[].links:
+    kill(link)
+
+  withLock actor[].lock:
+    actor[].sigQueue.clear()
+    # Drop the continuation
+    if not actor[].c.isNil:
+      actor[].c.disarm
+      actor[].c = nil
+
+  actor[].msgQueue.clear()
+  actor[].links.setLen(0)
+  actor[].parent = Actor()
 
   pool.actorCount -= 1
 
@@ -306,9 +317,11 @@ proc workerThread(worker: ptr Worker) {.thread.} =
         break
       actor = pool.workQueue.popFirst()
       withLock actor[].lock:
-        c = move actor[].c
         if actor[].state == Dead:
           continue
+        doAssert actor[].state == Queued
+        actor[].state = Running
+        c = move actor[].c
 
     actor.handleSignals()
 
@@ -340,7 +353,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
         state = actor[].state
       if state == Killed:
         pool.exit(actor, Killed)
-
+    
 
 # Try to receive a message, returns `nil` if no messages available or matched
 # the passed filter
@@ -361,7 +374,6 @@ proc tryRecv*(actor: Actor, filter: MailFilter = nil): Message =
 # Link two processes: if one goes down, the other gets killed as well
 
 proc link*(actor: Actor, peer: Actor) =
-  #echo "link ", actor, " ", peer
   actor[].links.add(peer)
   peer.send(SigLink(), actor)
 
@@ -426,7 +438,6 @@ proc join*(pool: ref Pool) =
         break
     os.sleep(10)
 
-  echo "joining workers"
   withLock pool.workLock:
     pool.stop = true
     pool.workCond.broadcast()

@@ -17,6 +17,7 @@ import nimactors/lib/evq
 var rtotal: Atomic[int]
 var wtotal: Atomic[int]
 const chunkSize = 1024 * 1024
+const chunkCount = 1024
 
 proc reader(evq: Evq, fd: cint, n: int) {.actor.} =
   var i: int
@@ -39,14 +40,14 @@ proc writer(evq: Evq, fd: cint, n: int) {.actor.} =
 proc main() {.actor.} =
  
   let evq = newEvq()
-  let pipes = 32
+  let pipes = 16
   var i = 0
 
   while i < pipes:
     var fds: array[2, cint]
     discard pipe2(fds, O_NONBLOCK)
-    discard hatch reader(evq, fds[0], 1024)
-    discard hatch writer(evq, fds[1], 1024)
+    discard hatch reader(evq, fds[0], chunkCount)
+    discard hatch writer(evq, fds[1], chunkCount)
     inc i
 
   echo "waiting for actors to finish"
@@ -59,7 +60,7 @@ proc main() {.actor.} =
   kill evq
 
   doAssert rtotal.load() == wtotal.load()
-  doAssert rtotal.load() == pipes * 1024 * chunkSize
+  doAssert rtotal.load() == pipes * chunkCount * chunkSize
   echo rtotal.load() / (1024 * 1024 * 1024), " Gb tranferred"
 
 

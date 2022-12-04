@@ -75,18 +75,18 @@ proc send*(c: ActorCont, dst: Actor, msg: sink Message) {.cpsVoodoo.} =
 # Receive a message, nonblocking
 
 proc tryRecv*(c: ActorCont): Message {.cpsVoodoo.} =
-  result = c.actor.tryRecv()
+  c.actor.tryRecv()
 
 proc tryRecv*(c: ActorCont, srcId: Actor): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg.src == srcId
-  result = c.actor.tryRecv(filter)
+  c.actor.tryRecv(filter)
 
 proc tryRecv*(c: ActorCont, T: typedesc): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg of T
-  result = c.actor.tryRecv(filter)
+  c.actor.tryRecv(filter)
 
 proc tryRecv*(c: ActorCont, filter: MailFilter): Message {.cpsVoodoo.} =
-  result = c.actor.tryRecv(filter)
+  c.actor.tryRecv(filter)
 
 
 # Receive a message, blocking

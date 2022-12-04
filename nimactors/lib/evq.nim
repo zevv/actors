@@ -39,6 +39,10 @@ template `<`(a, b: Timer): bool =
   a.time < b.time
 
 
+template trace(msg: string) =
+  #echo msg
+  discard
+
 proc handleMessage(evq: EvqImpl, m: Message) {.actor.} =
 
   if m of MessageEvqAddTimer:
@@ -47,12 +51,14 @@ proc handleMessage(evq: EvqImpl, m: Message) {.actor.} =
 
   elif m of MessageEvqAddFd:
     let m = m.MessageEvqAddFd
+    trace "addfd " & $m.fd
     var ee = EpollEvent(events: m.events.uint32 or EPOLLET.uint32, data: EpollData(u64: m.fd.uint64))
     discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, m.fd, ee.addr)
     evq.fds[m.MessageEvqAddFd.fd] = m.src
 
   elif m of MessageEvqDelFd:
     let m = m.MessageEvqDelFd
+    trace "delfd " & $m.fd
     discard epoll_ctl(evq.epfd, EPOLL_CTL_DEL, m.fd.cint, nil)
     evq.fds.del(m.fd)
 
@@ -89,17 +95,25 @@ proc evqActor*(fdWake: cint) {.actor.} =
 
   var evq = EvqImpl(epfd: epoll_create(1))
 
-  #
   var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: fdWake.uint64))
   discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fdWake, ee.addr)
 
   while true:
+ 
+    jield()
+    
+    while true:
+      let m = tryRecv()
+      if not m.isNil:
+        evq.handleMessage(m)
+      else:
+        break
 
     var es: array[8, EpollEvent]
     let timeout = evq.calculateTimeout()
-    #echo "epollin"
+    trace "epollin"
     let n = epoll_wait(evq.epfd, es[0].addr, es.len.cint, timeout)
-    #echo "epollout ", n
+    trace "epollout " & $n
 
     evq.now = getMonoTime().ticks.float / 1.0e9
     evq.handleTimers()
@@ -114,20 +128,11 @@ proc evqActor*(fdWake: cint) {.actor.} =
 
       elif fd in evq.fds:
         let actor = evq.fds[fd]
+        trace $actor & ": fd " & $fd & " ready"
         send(actor, MessageEvqEvent())
 
       inc i
 
-    # Handle messages
-
-    while true:
-      let m = tryRecv()
-      if not m.isNil:
-        evq.handleMessage(m)
-      else:
-        break
-
-    jield()
 
 
 # Public API
@@ -153,13 +158,16 @@ proc readAll*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
   var done: int
   evq.addFd(fd, POLLIN)
   while done < size:
+    trace $fd & ": read wait"
     discard recv(MessageEvqEvent)
+    trace $fd & ": read ready"
     while done < size:
       let p = cast[ptr char](cast[Byteaddress](buf) + done)
       let r = posix.read(fd, p, size-done)
+      trace $fd & " read " & $r
       if r > 0:
         done += r
-      elif r < size-done:
+      if r < size-done:
         break
   evq.delFd(fd)
   return done
@@ -169,13 +177,16 @@ proc writeAll*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
   var done = 0
   evq.addFd(fd, POLLOUT)
   while done < size:
+    trace $fd & ": write wait"
     discard recv(MessageEvqEvent)
+    trace $fd & ": write ready"
     while done < size:
       let p = cast[ptr char](cast[Byteaddress](buf) + done)
       let r = posix.write(fd, p, size-done)
+      trace $fd & " write " & $r
       if r > 0:
         done += r
-      elif r < size-done:
+      if r < size-done:
         break
   evq.delFd(fd)
   result = done
