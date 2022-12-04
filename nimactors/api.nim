@@ -63,7 +63,6 @@ proc suspend*(c: sink ActorCont): ActorCont {.cpsMagic.} =
 
 proc jield*(c: ActorCont): ActorCont {.cpsMagic.} =
   c.actor.jield(c)
-  return nil
 
 
 # Send a message to another actor

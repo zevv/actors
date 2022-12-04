@@ -16,6 +16,7 @@ import nimactors/lib/evq
 
 var rtotal: Atomic[int]
 var wtotal: Atomic[int]
+
 const chunkSize = 1024 * 1024
 const chunkCount = 1024
 

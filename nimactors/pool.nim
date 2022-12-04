@@ -157,30 +157,19 @@ proc pass*(cFrom, cTo: ActorCont): ActorCont =
   cTo
 
 
-
-proc pushSignal(actor: Actor, sig: sink Signal) =
-  withLock actor[].lock:
-    actor[].sigQueue.addLast(sig)
-
-
-proc popSignal(actor: Actor): Signal =
-  withLock actor[].lock:
-    if actor[].sigQueue.len() > 0:
-      return actor[].sigQueue.popFirst()
-
-
 # handle incoming signal queue
 
 proc handleSignals(actor: Actor) =
 
   while true:
-    let sig = actor.popSignal()
-    #echo actor, ": got sig ", sig
 
-    if sig.isNil:
-      break
+    var sig: Signal
+    withLock actor[].lock:
+      if actor[].sigQueue.len() == 0:
+        break
+      sig = actor[].sigQueue.popFirst()
 
-    elif sig of Message:
+    if sig of Message:
       actor[].msgQueue.addLast(sig.Message)
 
     elif sig of SigKill:
@@ -193,21 +182,21 @@ proc handleSignals(actor: Actor) =
       echo actor, ": rx unknown signal"
 
 
-# Move the continuation back into the actor; the actor can later be
-# resumed to continue the continuation
+# Move the continuation back into the actor; the actor can later be resumed to
+# continue the continuation. If there are signals waiting, handle those and do
+# not suspend.
 
 proc trySuspend*(actor: Actor, c: sink Continuation): bool =
 
   withLock actor[].lock:
-    doAssert actor[].state == Running
     if actor[].sigQueue.len == 0:
       actor[].c = move c
-      actor[].state = Suspended
+      if actor[].state == Running:
+        actor[].state = Suspended
       return true
 
   actor.handleSignals()
   return false
-
 
 
 # Move the actors continuation to the work queue to schedule execution
@@ -255,8 +244,19 @@ proc setSignalFd*(actor: Actor, fd: cint) =
 proc send*(actor: Actor, sig: sink Signal, src: Actor) =
   #echo "  ", src, " -> ", actor
   sig.src = src
-  actor.pushSignal(sig)
+
+  withLock actor[].lock:
+    if actor[].state notin {Killed, Dead}:
+      actor[].sigQueue.addLast(sig)
+  
   actor[].pool.resume(actor)
+
+
+# Link two processes: if one goes down, the other gets killed as well
+
+proc link*(actor: Actor, peer: Actor) =
+  actor[].links.add(peer)
+  peer.send(SigLink(), actor)
 
 
 # Kill an actor
@@ -270,16 +270,31 @@ proc kill*(actor: Actor) =
 
 proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = nil) =
 
-  #echo &"Actor {actor} terminated, reason: {reason}"
-  
   withLock actor[].lock:
     actor[].state = Dead
-
+  
   actor.handleSignals()
 
   # Inform the parent of the death of their child
   if not actor[].parent.isnil:
+    # getCurrentException() returns a ref to a global .threadvar, which is not
+    # safe to carry around. As a workaround, create a fresh exception and copy
+    # some of the fields. TODO: what about the stack frames?
+    var ex: ref Exception
+    let exCur = getCurrentException()
+    if not exCur.isNil:
+      ex = new Exception
+      ex.name = exCur.name
+      ex.msg = exCur.msg
     actor[].parent.send(MessageExit(actor: actor, reason: reason, ex: ex), Actor())
+  else:
+    # This actor has no parent, dump termination info to console
+    echo &"Actor {actor} has terminated, reason: {reason}"
+    if reason == Error:
+      let ex = getCurrentException()
+      echo "Exception: ", ex.name, ": ", ex.msg
+      echo getStackTrace(ex)
+      quit 1
   
   # Kill linked processes
   for link in actor[].links:
@@ -298,6 +313,9 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
 
   pool.actorCount -= 1
 
+
+# Thread main function: receives actors from the work queue, trampolines
+# their continuations and handles exit conditions
 
 proc workerThread(worker: ptr Worker) {.thread.} =
 
@@ -334,15 +352,8 @@ proc workerThread(worker: ptr Worker) {.thread.} =
           c = c.fn(c)
 
     except:
-      # getCurrentException() returns a ref to a global .threadvar, which is
-      # not safe to carry around. As a workaround we create a fresh
-      # exception and copy some of the fields # TODO what about the stack
-      # frames?
-      let ex = getCurrentException()
-      let exNew = new Exception
-      exNew.name = ex.name
-      exNew.msg = ex.msg
-      pool.exit(actor, Error, exNew)
+      pool.exit(actor, Error)
+        
 
     # Cleanup if continuation has finished or was killed
     if c.finished:
@@ -369,13 +380,6 @@ proc tryRecv*(actor: Actor, filter: MailFilter = nil): Message =
         msg = nil
       break
     first = false
-
-
-# Link two processes: if one goes down, the other gets killed as well
-
-proc link*(actor: Actor, peer: Actor) =
-  actor[].links.add(peer)
-  peer.send(SigLink(), actor)
 
 
 proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =

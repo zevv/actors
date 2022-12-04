@@ -5,9 +5,7 @@ import nimactors
 
 proc alice() {.actor.} =
   while true:
-    echo "prerevcv"
     discard recv()
-    echo "postrevcv"
 
 
 proc bob() {.actor.} =

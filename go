@@ -46,12 +46,14 @@ run()
 			nim c ${nimflags} ${src} && gdb ${bin}
 			;;
 		all)
+			./go run tests/texit
 			./go valgrind tests/texit
 			./go helgrind tests/texit
 			./go drd tests/texit
 			./go tsan tests/texit
 			./go asan tests/texit
 			./go debug tests/texit
+			./go run tests/tlink
 			./go run tests/tmillions
 			./go run tests/tevqpipe
 			figlet "all good"
