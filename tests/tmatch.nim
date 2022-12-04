@@ -6,6 +6,7 @@ import nimactors
 type
   Message1 = ref object of Message
     val: int
+    weight: float
 
   Message2 = ref object of Message
     name: string
@@ -18,6 +19,7 @@ proc main() {.actor.} =
 
   # Send some stuff; note this goes in the wrong order
  
+  send(self(), Message1(val: 122, weight: 14.4))
   send(self(), Message3(thing: 3.14))
   send(self(), Message2(name: "charlie"))
   send(self(), Message1(val: 124))
@@ -25,8 +27,6 @@ proc main() {.actor.} =
 
   # See what we can match
  
-  var val = 124
-
   while true:
 
     receive:
@@ -34,15 +34,18 @@ proc main() {.actor.} =
       Message1(val: 123):
         echo "got Message1, val was a direct hit 123"
       
-      Message1(val: val):
-        echo "got Message1, val was ", val
+      (v, w) = Message1(val: v, weight: w):
+        echo "got Message1, val was ", v, " weight ", w
       
-      Message2(name: "john"):
-        echo "got Message2, val was "
+      name = Message2(name: name):
+        echo "got Message2, name was ", name
 
       Message3():
         echo "Got Message3"
-        echo msg.thing
+        #echo msg.thing
+
+      else:
+        suspend()
 
   echo "all good"
 
