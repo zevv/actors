@@ -71,6 +71,22 @@ proc send*(c: ActorCont, dst: Actor, msg: sink Message) {.cpsVoodoo.} =
   dst.send(msg, c.actor)
 
 
+
+# Try to receive a message, returns `nil` if no messages available or matched
+# the passed filter
+
+proc tryRecv*(actor: Actor, filter: MailFilter = nil): Message =
+  var first = true
+  for msg in actor[].msgQueue.mitems:
+    if not msg.isNil and (filter.isNil or filter(msg)):
+      result = msg
+      if first:
+        actor[].msgQueue.popFirst()
+      else:
+        msg = nil
+      break
+    first = false
+
 # Receive a message, nonblocking
 
 proc tryRecv*(c: ActorCont): Message {.cpsVoodoo.} =

@@ -32,3 +32,6 @@ export send
 export setSignalFd
 export suspend
 export tryRecv
+
+import nimactors/receivemacro
+export receive

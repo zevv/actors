@@ -1,15 +1,5 @@
-
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-import os
+import std/os
+import std/osproc
 import std/macros
 import std/locks
 import std/deques
@@ -248,8 +238,11 @@ proc send*(actor: Actor, sig: sink Signal, src: Actor) =
   withLock actor[].lock:
     if actor[].state notin {Killed, Dead}:
       actor[].sigQueue.addLast(sig)
-  
-  actor[].pool.resume(actor)
+ 
+  if actor == src:
+    actor.handleSignals()
+  else:
+    actor[].pool.resume(actor)
 
 
 # Link two processes: if one goes down, the other gets killed as well
@@ -366,21 +359,6 @@ proc workerThread(worker: ptr Worker) {.thread.} =
         pool.exit(actor, Killed)
     
 
-# Try to receive a message, returns `nil` if no messages available or matched
-# the passed filter
-
-proc tryRecv*(actor: Actor, filter: MailFilter = nil): Message =
-  var first = true
-  for msg in actor[].msgQueue.mitems:
-    if not msg.isNil and (filter.isNil or filter(msg)):
-      result = msg
-      if first:
-        actor[].msgQueue.popFirst()
-      else:
-        msg = nil
-      break
-    first = false
-
 
 proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =
 
@@ -411,7 +389,7 @@ proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false):
 
 # Create pool with actor queue and worker threads
 
-proc newPool*(nWorkers: int): ref Pool =
+proc newPool*(nWorkers: int = countProcessors()): ref Pool =
 
   var pool = new Pool
   initLock pool.workLock
