@@ -42,6 +42,9 @@ run()
 		debug)
 			nim c ${nimflags} ${src} && ${bin}
 			;;
+		gdb)
+			nim c ${nimflags} ${src} && gdb ${bin}
+			;;
 		all)
 			./go valgrind tests/texit
 			./go helgrind tests/texit

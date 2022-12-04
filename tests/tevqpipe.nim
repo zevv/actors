@@ -15,38 +15,35 @@ proc pipe2*(a: array[0..1, cint], flags: cint): cint {.importc, header: "<unistd
 import nimactors
 import nimactors/lib/evq
   
-const bytes = 1024 * 1024 * 1024
+const bytes = 1024 * 1024 * 128#024
 
 
 proc reader(evq: Evq, fd: cint, bytes: int) {.actor.} =
   var bytesReceived = 0
+  var buf = newString(1024 * 1024)
   while bytesReceived < bytes:
-    var buf = newString(1024 * 1024)
-    let r = evq.read(fd, buf[0].addr, buf.len)
-    echo r
-    if r > 0:
-      bytesReceived += r
-
+    let r = evq.readAll(fd, buf[0].addr, buf.len)
+    bytesReceived += r
 
 
 proc writer(evq: Evq, fd: cint, bytes: int) {.actor.} =
   let blob = newString(1024 * 1024)
   var loops = bytes /% blob.len
   while loops > 0:
-    let r = evq.write(fd, blob[0].addr, blob.len)
+    let r = evq.writeAll(fd, blob[0].addr, blob.len)
     dec loops
 
 
 proc main() {.actor.} =
  
   let evq = newEvq()
-  let pipes = 8
+  let pipes = 1
   var i = 0
 
   while i < pipes:
     var fds: array[2, cint]
-    #discard pipe2(fds, O_NONBLOCK)
-    discard posix.socketpair(AF_UNIX, SOCK_STREAM or O_NONBLOCK, 0, fds)
+    discard pipe2(fds, O_NONBLOCK)
+    #discard posix.socketpair(AF_UNIX, SOCK_STREAM or O_NONBLOCK, 0, fds)
 
     let r = hatch reader(evq, fds[0], bytes)
     let w = hatch writer(evq, fds[1], bytes)
@@ -64,7 +61,7 @@ proc main() {.actor.} =
 
 
 proc go() =
-  var pool = newPool(16)
+  var pool = newPool(3)
   discard pool.hatch main()
   pool.join()
 

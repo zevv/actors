@@ -126,12 +126,7 @@ proc `$`*(worker: ref Worker | ptr Worker): string =
   return "worker." & $worker.id
 
 proc `$`*(a: Actor): string =
-  result = "actor."
-  if a.isNil: 
-    result &= "nil"
-  else:
-    let state = if a.isRunning: "running" else: "suspended"
-    result &= $a.p[].pid & "(" & state & ")"
+  result = "actor." & (if a.isNil: "nil" else: $a.p[].pid)
 
 proc `$`*(m: Message): string =
   if not m.isNil: "msg src=" & $m.src else: "msg.nil"
@@ -188,9 +183,10 @@ proc jield*(actor: Actor, c: sink ActorCont) =
   withLock pool.workLock:
     withLock actor[].lock:
       doAssert actor.isRunning()
-      actor[].c = move c
-      pool.workQueue.addLast(actor)
-      pool.workCond.signal()
+      if actor[].state != Killed:
+        actor[].c = move c
+        pool.workQueue.addLast(actor)
+        pool.workCond.signal()
 
 
 # Set signal file descriptor
@@ -211,8 +207,6 @@ proc send*(actor: Actor, msg: sink Message, src: Actor) =
   var count: int
   withLock actor[].lock:
     actor[].mailbox.addLast(msg)
-    count = actor[].mailbox.len
-  bitline.logValue("actor." & $actor & ".mailbox", count)
 
   actor[].pool.resume(actor)
 
@@ -269,49 +263,45 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     var actor: Actor
     var c: Continuation
 
-    bitline.log(wid & ".wait"):
+    withLock pool.workLock:
+      while pool.workQueue.len == 0 and not pool.stop:
+        pool.workCond.wait(pool.workLock)
+      if pool.stop:
+        break
+      actor = pool.workQueue.popFirst()
+      withLock actor[].lock:
+        c = move actor[].c
+        if actor[].state == Dead:
+          continue
 
-      withLock pool.workLock:
-        while pool.workQueue.len == 0 and not pool.stop:
-          pool.workCond.wait(pool.workLock)
-        if pool.stop:
-          break
-        actor = pool.workQueue.popFirst()
-        withLock actor[].lock:
-          c = move actor[].c
-          if actor[].state == Dead:
-            continue
+    try:
+    
+      # Trampoline the actor's continuation if in the Running state
 
-    bitline.log $worker & ".run":
+      {.cast(gcsafe).}:
+        while not c.isNil and not c.fn.isNil:
+          c = c.fn(c)
 
-      try:
-      
-        # Trampoline the actor's continuation if in the Running state
+    except:
+      # getCurrentException() returns a ref to a global .threadvar, which is
+      # not safe to carry around. As a workaround we create a fresh
+      # exception and copy some of the fields # TODO what about the stack
+      # frames?
+      let ex = getCurrentException()
+      let exNew = new Exception
+      exNew.name = ex.name
+      exNew.msg = ex.msg
+      pool.exit(actor, Error, exNew)
 
-        {.cast(gcsafe).}:
-          while not c.isNil and not c.fn.isNil:
-            c = c.fn(c)
-
-      except:
-        # getCurrentException() returns a ref to a global .threadvar, which is
-        # not safe to carry around. As a workaround we create a fresh
-        # exception and copy some of the fields # TODO what about the stack
-        # frames?
-        let ex = getCurrentException()
-        let exNew = new Exception
-        exNew.name = ex.name
-        exNew.msg = ex.msg
-        pool.exit(actor, Error, exNew)
-
-      # Cleanup if continuation has finished or was killed
-      if c.finished:
-        pool.exit(actor, Normal)
-      else:
-        var state: State
-        withLock actor[].lock:
-          state = actor[].state
-        if state == Killed:
-          pool.exit(actor, Killed)
+    # Cleanup if continuation has finished or was killed
+    if c.finished:
+      pool.exit(actor, Normal)
+    else:
+      var state: State
+      withLock actor[].lock:
+        state = actor[].state
+      if state == Killed:
+        pool.exit(actor, Killed)
       
 
 # Try to receive a message, returns `nil` if no messages available or matched
@@ -390,6 +380,7 @@ proc join*(pool: ref Pool) =
         break
     os.sleep(10)
 
+  echo "joining workers"
   withLock pool.workLock:
     pool.stop = true
     pool.workCond.broadcast()

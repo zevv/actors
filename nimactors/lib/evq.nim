@@ -26,7 +26,6 @@ type
     iokTimer, iokFd
 
   Io = ref object
-    kind: IoKind
     actor: Actor
 
   MessageEvqAddTimer* = ref object of Message
@@ -56,7 +55,7 @@ proc handleMessage(evq: EvqImpl, m: Message) {.actor.} =
     let m = m.MessageEvqAddFd
     var ee = EpollEvent(events: m.events.uint32 or EPOLLET.uint32, data: EpollData(u64: m.fd.uint64))
     discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, m.fd, ee.addr)
-    let io = Io(kind: iokFd, actor: m.src)
+    let io = Io(actor: m.src)
     evq.ios[m.MessageEvqAddFd.fd] = io
 
   elif m of MessageEvqDelFd:
@@ -106,7 +105,9 @@ proc evqActor*(fdWake: cint) {.actor.} =
         
     var es: array[8, EpollEvent]
     let timeout = evq.calculateTimeout()
+    #echo "epollin"
     let n = epoll_wait(evq.epfd, es[0].addr, es.len.cint, timeout)
+    #echo "epollout ", n
 
     evq.now = getMonoTime().ticks.float / 1.0e9
     evq.handleTimers()
@@ -121,9 +122,7 @@ proc evqActor*(fdWake: cint) {.actor.} =
 
       elif fd in evq.ios:
         let io = evq.ios[fd]
-        if io.kind == iokTimer:
-          var data: uint64
-          discard posix.read(fd, data.addr, sizeof(data))
+        #echo fd, " is ready"
         send(io.actor, MessageEvqEvent())
 
       inc i
@@ -157,21 +156,38 @@ proc sleep*(evq: Evq, interval: float) {.actor.} =
   discard recv(MessageEvqEvent)
 
 
-proc read*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
+proc readAll*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
   evq.addFd(fd, POLLIN)
-  discard recv(MessageEvqEvent)
-  result = posix.read(fd, buf, size)
+  var done: int
+  while done < size:
+    #echo "read wait"
+    discard recv(MessageEvqEvent)
+    while done < size:
+      let p = cast[ptr char](cast[Byteaddress](buf) + done)
+      let r = posix.read(fd, p, size-done)
+      #echo "read ", fd, ": ", r
+      if r > 0:
+        done += r
+      if r < size-done:
+        break
   evq.delFd(fd)
+  return done
 
 
-proc write*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
+proc writeAll*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
   var done = 0
   evq.addFd(fd, POLLOUT)
   while done < size:
+    #{{echo "write wait"
     discard recv(MessageEvqEvent)
-    let p = cast[ptr char](cast[Byteaddress](buf) + done)
-    let r = posix.write(fd, p, size-done)
-    done += r
+    while done < size:
+      let p = cast[ptr char](cast[Byteaddress](buf) + done)
+      let r = posix.write(fd, p, size-done)
+      #echo "write ", fd, ": ", r
+      if r > 0:
+        done += r
+      if r < size-done:
+        break
   evq.delFd(fd)
   result = done
 
