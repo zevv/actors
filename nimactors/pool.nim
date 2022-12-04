@@ -18,7 +18,7 @@ import isisolated
 import mallinfo
 
 
-type 
+type
 
   Pool* = object
 
@@ -53,21 +53,23 @@ type
     pid*: int
     parent*: Actor
     msgQueue*: Deque[Message]
+    state*: State
+    links*: seq[Actor]
 
     lock*: Lock
     sigQueue*: Deque[Signal]
-    state*: State
     c*: Continuation
-    links*: seq[Actor]
     signalFd*: cint
 
   Actor* = object
     p*: ptr ActorObject
-  
+
   Signal* = ref object of Rootobj
     src*: Actor
 
   SigKill = ref object of Signal
+
+  SigLink = ref object of Signal
 
   Message* = ref object of Signal
 
@@ -78,7 +80,7 @@ type
 
   ExitReason* = enum
     Normal, Killed, Error
-  
+
   MailFilter* = proc(msg: Message): bool
 
 
@@ -147,15 +149,6 @@ proc pass*(cFrom, cTo: ActorCont): ActorCont =
   cTo
 
 
-# Link two processes: if one goes down, the other gets killed as well
-
-proc link*(a: Actor, b: Actor) =
-  withLock a[].lock:
-    a[].links.add b
-  withLock b[].lock:
-    b[].links.add a
-
-
 
 proc pushSignal(actor: Actor, sig: sink Signal) =
   withLock actor[].lock:
@@ -182,12 +175,21 @@ proc handleSignals(actor: Actor) =
     elif sig of Message:
       actor[].msgQueue.addLast(sig.Message)
 
+    elif sig of SigKill:
+      actor[].state = Killed
+
+    elif sig of SigLink:
+      actor[].links.add sig.src
+
+    else:
+      echo actor, ": rx unknown signal"
+
 
 # Move the continuation back into the actor; the actor can later be
 # resumed to continue the continuation
 
 proc trySuspend*(actor: Actor, c: sink Continuation): bool =
-  
+
   withLock actor[].lock:
     doAssert actor.isRunning()
     if actor[].sigQueue.len == 0:
@@ -248,10 +250,7 @@ proc send*(actor: Actor, sig: sink Signal, src: Actor) =
 # Kill an actor
 
 proc kill*(actor: Actor) =
-  withLock actor[].lock:
-    if actor[].state == Active:
-      actor[].state = Killed
-  actor.send(MessageKill(), Actor())
+  actor.send(SigKill(), Actor())
 
 
 # Signal termination of an actor; inform the parent and kill any linked
@@ -261,9 +260,11 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
 
   #echo &"Actor {actor} terminated, reason: {reason}"
 
+  actor.handleSignals()
+
   var parent: Actor
   var links: seq[Actor]
-    
+
   actor[].msgQueue.clear()
 
   withLock actor[].lock:
@@ -283,7 +284,7 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
   # Kill linked processes
   for id in links:
     kill(id)
-  
+
   pool.actorCount -= 1
 
 
@@ -312,7 +313,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     actor.handleSignals()
 
     try:
-    
+
       # Trampoline the actor's continuation if in the Running state
 
       {.cast(gcsafe).}:
@@ -339,7 +340,7 @@ proc workerThread(worker: ptr Worker) {.thread.} =
         state = actor[].state
       if state == Killed:
         pool.exit(actor, Killed)
-      
+
 
 # Try to receive a message, returns `nil` if no messages available or matched
 # the passed filter
@@ -355,6 +356,14 @@ proc tryRecv*(actor: Actor, filter: MailFilter = nil): Message =
         msg = nil
       break
     first = false
+
+
+# Link two processes: if one goes down, the other gets killed as well
+
+proc link*(actor: Actor, peer: Actor) =
+  #echo "link ", actor, " ", peer
+  actor[].links.add(peer)
+  peer.send(SigLink(), actor)
 
 
 proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =
@@ -377,7 +386,7 @@ proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false):
 
   if linked:
     link(actor, parent)
- 
+
   pool.actorCount += 1
   pool.resume(actor)
 
@@ -391,6 +400,7 @@ proc newPool*(nWorkers: int): ref Pool =
   var pool = new Pool
   initLock pool.workLock
   initCond pool.workCond
+  pool.actorPidCounter.store(1)
 
   for i in 0..<nWorkers:
     var worker = new Worker
@@ -405,7 +415,7 @@ proc newPool*(nWorkers: int): ref Pool =
 # Wait until all actors in the pool have died and cleanup
 
 proc join*(pool: ref Pool) =
-  
+
   while true:
     let n = pool.actorCount.load()
     let mi = mallinfo2()

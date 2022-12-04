@@ -13,6 +13,7 @@ proc other() {.actor.} =
 proc main() {.actor.} =
   let pid = hatchLinked other()
   os.sleep(500)
+  echo "bye"
 
 
 var pool = newPool(4)
