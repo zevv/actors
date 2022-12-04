@@ -16,6 +16,7 @@ export join
 export kill
 export link
 export newPool
+export trySuspend
 export pass
 
 import nimactors/api

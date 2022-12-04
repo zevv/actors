@@ -53,7 +53,10 @@ proc self*(c: ActorCont): Actor {.cpsVoodoo.} =
 # be resumed by calling toWorkQueue
 
 proc suspend*(c: sink ActorCont): ActorCont {.cpsMagic.} =
-  c.actor.suspend(c)
+  if c.actor.trySuspend(c):
+    return nil
+  else:
+    return c
 
 
 # Move a running process to the back of the work queue

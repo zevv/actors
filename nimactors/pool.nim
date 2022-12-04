@@ -52,22 +52,25 @@ type
     pool*: ptr Pool
     pid*: int
     parent*: Actor
+    msgQueue*: Deque[Message]
 
     lock*: Lock
+    sigQueue*: Deque[Signal]
     state*: State
     c*: Continuation
     links*: seq[Actor]
-    mailBox*: Deque[Message]
     signalFd*: cint
 
   Actor* = object
     p*: ptr ActorObject
-
-  Message* = ref object of Rootobj
+  
+  Signal* = ref object of Rootobj
     src*: Actor
 
-  MessageKill* = ref object of Message
-  
+  SigKill = ref object of Signal
+
+  Message* = ref object of Signal
+
   MessageExit* = ref object of Message
     actor*: Actor
     reason*: ExitReason
@@ -128,6 +131,9 @@ proc `$`*(worker: ref Worker | ptr Worker): string =
 proc `$`*(a: Actor): string =
   result = "actor." & (if a.isNil: "nil" else: $a.p[].pid)
 
+proc `$`*(m: Signal): string =
+  if not m.isNil: "sig src=" & $m.src else: "sig.nil"
+
 proc `$`*(m: Message): string =
   if not m.isNil: "msg src=" & $m.src else: "msg.nil"
 
@@ -150,13 +156,47 @@ proc link*(a: Actor, b: Actor) =
     b[].links.add a
 
 
+
+proc pushSignal(actor: Actor, sig: sink Signal) =
+  withLock actor[].lock:
+    actor[].sigQueue.addLast(sig)
+
+
+proc popSignal(actor: Actor): Signal =
+  withLock actor[].lock:
+    if actor[].sigQueue.len() > 0:
+      return actor[].sigQueue.popFirst()
+
+
+# handle incoming signal queue
+
+proc handleSignals(actor: Actor) =
+
+  while true:
+    let sig = actor.popSignal()
+    #echo actor, ": got sig ", sig
+
+    if sig.isNil:
+      break
+
+    elif sig of Message:
+      actor[].msgQueue.addLast(sig.Message)
+
+
 # Move the continuation back into the actor; the actor can later be
 # resumed to continue the continuation
 
-proc suspend*(actor: Actor, c: sink Continuation) =
+proc trySuspend*(actor: Actor, c: sink Continuation): bool =
+  
   withLock actor[].lock:
     doAssert actor.isRunning()
-    actor[].c = move c
+    if actor[].sigQueue.len == 0:
+      actor[].c = move c
+      return true
+
+  actor.handleSignals()
+  return false
+
 
 
 # Move the actors continuation to the work queue to schedule execution
@@ -198,16 +238,10 @@ proc setSignalFd*(actor: Actor, fd: cint) =
 
 # Send a message from src to dst
 
-proc send*(actor: Actor, msg: sink Message, src: Actor) =
-
+proc send*(actor: Actor, sig: sink Signal, src: Actor) =
   #echo "  ", src, " -> ", actor
-
-  msg.src = src
-
-  var count: int
-  withLock actor[].lock:
-    actor[].mailbox.addLast(msg)
-
+  sig.src = src
+  actor.pushSignal(sig)
   actor[].pool.resume(actor)
 
 
@@ -229,16 +263,17 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
 
   var parent: Actor
   var links: seq[Actor]
+    
+  actor[].msgQueue.clear()
 
   withLock actor[].lock:
     actor[].state = Dead
-    actor[].mailbox.clear()
-    parent = move actor[].parent
+    actor[].sigQueue.clear()
     links = move actor[].links
 
   # Inform the parent of the death of their child
-  if not parent.isnil:
-    parent.send(MessageExit(actor: actor, reason: reason, ex: ex), Actor())
+  if not actor[].parent.isnil:
+    actor[].parent.send(MessageExit(actor: actor, reason: reason, ex: ex), Actor())
 
   # Drop the continuation
   if actor.isSuspended():
@@ -274,6 +309,8 @@ proc workerThread(worker: ptr Worker) {.thread.} =
         if actor[].state == Dead:
           continue
 
+    actor.handleSignals()
+
     try:
     
       # Trampoline the actor's continuation if in the Running state
@@ -308,17 +345,16 @@ proc workerThread(worker: ptr Worker) {.thread.} =
 # the passed filter
 
 proc tryRecv*(actor: Actor, filter: MailFilter = nil): Message =
-  withLock actor[].lock:
-    var first = true
-    for msg in actor[].mailbox.mitems:
-      if not msg.isNil and (filter.isNil or filter(msg)):
-        result = msg
-        if first:
-          actor[].mailbox.popFirst()
-        else:
-          msg = nil
-        break
-      first = false
+  var first = true
+  for msg in actor[].msgQueue.mitems:
+    if not msg.isNil and (filter.isNil or filter(msg)):
+      result = msg
+      if first:
+        actor[].msgQueue.popFirst()
+      else:
+        msg = nil
+      break
+    first = false
 
 
 proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =
