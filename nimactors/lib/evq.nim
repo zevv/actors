@@ -13,19 +13,13 @@ type
 
   EvqImpl = ref object
     epfd: cint
-    ios: Table[cint, Io]
+    fds: Table[cint, Actor]
     pool: ptr Pool
     now: float
     timers*: HeapQueue[Timer]
 
   Timer = object
     time: float
-    actor: Actor
-
-  IoKind = enum
-    iokTimer, iokFd
-
-  Io = ref object
     actor: Actor
 
   MessageEvqAddTimer* = ref object of Message
@@ -55,13 +49,12 @@ proc handleMessage(evq: EvqImpl, m: Message) {.actor.} =
     let m = m.MessageEvqAddFd
     var ee = EpollEvent(events: m.events.uint32 or EPOLLET.uint32, data: EpollData(u64: m.fd.uint64))
     discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, m.fd, ee.addr)
-    let io = Io(actor: m.src)
-    evq.ios[m.MessageEvqAddFd.fd] = io
+    evq.fds[m.MessageEvqAddFd.fd] = m.src
 
   elif m of MessageEvqDelFd:
-    let fd = m.MessageEvqDelFd.fd
-    discard epoll_ctl(evq.epfd, EPOLL_CTL_DEL, fd.cint, nil)
-    evq.ios.del(fd)
+    let m = m.MessageEvqDelFd
+    discard epoll_ctl(evq.epfd, EPOLL_CTL_DEL, m.fd.cint, nil)
+    evq.fds.del(m.fd)
   
   else:
     discard
@@ -94,15 +87,13 @@ template handleTimers(evq: EvqImpl) =
 
 proc evqActor*(fdWake: cint) {.actor.} =
   
-  var evq = EvqImpl(
-    epfd: epoll_create(1),
-  )
-  
+  var evq = EvqImpl(epfd: epoll_create(1))
+ 
+  # 
   var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: fdWake.uint64))
   discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fdWake, ee.addr)
   
   while true:
-    jield()
         
     var es: array[8, EpollEvent]
     let timeout = evq.calculateTimeout()
@@ -121,10 +112,9 @@ proc evqActor*(fdWake: cint) {.actor.} =
         var b: array[1024, char]
         var n = posix.read(fdWake, b.addr, sizeof(b))
 
-      elif fd in evq.ios:
-        let io = evq.ios[fd]
-        #echo fd, " is ready"
-        send(io.actor, MessageEvqEvent())
+      elif fd in evq.fds:
+        let actor = evq.fds[fd]
+        send(actor, MessageEvqEvent())
 
       inc i
 
@@ -136,9 +126,11 @@ proc evqActor*(fdWake: cint) {.actor.} =
         evq.handleMessage(m)
       else:
         break
+    
+    jield()
+
 
 # Public API
-
 
 proc addTimer*(c: ActorCont, evq: Evq, interval: float) {.cpsVoodoo.} =
   evq.Actor.send(MessageEvqAddTimer(interval: interval), c.actor)
@@ -158,18 +150,16 @@ proc sleep*(evq: Evq, interval: float) {.actor.} =
 
 
 proc readAll*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
-  evq.addFd(fd, POLLIN)
   var done: int
+  evq.addFd(fd, POLLIN)
   while done < size:
-    #echo "read wait"
     discard recv(MessageEvqEvent)
     while done < size:
       let p = cast[ptr char](cast[Byteaddress](buf) + done)
       let r = posix.read(fd, p, size-done)
-      #echo "read ", fd, ": ", r
       if r > 0:
         done += r
-      if r < size-done:
+      elif r < size-done:
         break
   evq.delFd(fd)
   return done
@@ -179,15 +169,13 @@ proc writeAll*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
   var done = 0
   evq.addFd(fd, POLLOUT)
   while done < size:
-    #{{echo "write wait"
     discard recv(MessageEvqEvent)
     while done < size:
       let p = cast[ptr char](cast[Byteaddress](buf) + done)
       let r = posix.write(fd, p, size-done)
-      #echo "write ", fd, ": ", r
       if r > 0:
         done += r
-      if r < size-done:
+      elif r < size-done:
         break
   evq.delFd(fd)
   result = done

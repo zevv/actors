@@ -55,7 +55,7 @@ proc go() =
   while true:
     let n = ntotal.load()
     echo n
-    if n == 6377551:
+    if n == 6_377_551:
       break
     os.sleep(250)
 
