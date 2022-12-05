@@ -36,7 +36,7 @@ proc calculator() {.actor.} =
     let m = recv()
 
     if m of MsgQuestion:
-      echo &"calculator got a question from {m.src}"
+      #echo &"calculator got a question from {m.src}"
       let mq = m.MsgQuestion
       send(m.src, MsgAnswer(c: mq.a + mq.b))
 
@@ -58,7 +58,7 @@ proc bob(idCalculator: Actor, count: int) {.actor.} =
 
     if m of MsgAnswer:
       let ma = m.MsgAnswer
-      echo &"bob received an answer from {ma.src}: {ma.c}"
+      #echo &"bob received an answer from {ma.src}: {ma.c}"
 
     inc i
 
@@ -104,7 +104,7 @@ proc main() {.actor.} =
 
     let md = recv(MessageExit)
     kids.dec
-    echo &"actor {md.actor} died, reason: {md.reason}, {kids} kids left!"
+    #echo &"actor {md.actor} died, reason: {md.reason}, {kids} kids left!"
     if md.reason == Error:
       echo "An exception occured: ", md.ex.msg, "\n", md.ex.getStackTrace()
     if kids == 0:
