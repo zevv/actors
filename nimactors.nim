@@ -27,6 +27,8 @@ export hatchLinked
 export jield
 export kill
 export recv
+export getMsg
+export dropMsg
 export self
 export send
 export setSignalFd

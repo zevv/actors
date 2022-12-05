@@ -1,6 +1,8 @@
 
 
 import std/macros
+import std/os
+
 import nimactors
 
 type
@@ -15,41 +17,38 @@ type
     thing: float
 
 
+proc sender(dst: Actor) {.actor.} =
+  send(dst, Message1(val: 122, weight: 14.4))
+  send(dst, Message3(thing: 3.14))
+  send(dst, Message2(name: "charlie"))
+  send(dst, Message1(val: 124))
+  send(dst, Message1(val: 123))
+
+
 proc main() {.actor.} =
 
-  # Send some stuff; note this goes in the wrong order
- 
-  send(self(), Message1(val: 122, weight: 14.4))
-  send(self(), Message3(thing: 3.14))
-  send(self(), Message2(name: "charlie"))
-  send(self(), Message1(val: 124))
-  send(self(), Message1(val: 123))
+  discard hatch sender(self())
 
-  # See what we can match
- 
-  while true:
 
+  block:
     receive:
 
       Message1(val: 123):
         echo "got Message1, val was a direct hit 123"
-      
+
       (v, w) = Message1(val: v, weight: w):
         echo "got Message1, val was ", v, " weight ", w
-      
+
       name = Message2(name: name):
         echo "got Message2, name was ", name
 
       Message3():
         echo "Got Message3"
-        #echo msg.thing
 
-      else:
-        suspend()
 
   echo "all good"
 
 
-var pool = newPool()
+var pool = newPool(4)
 discard pool.hatch main()
 pool.join()

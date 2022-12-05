@@ -72,6 +72,16 @@ proc send*(c: ActorCont, dst: Actor, msg: sink Message) {.cpsVoodoo.} =
 
 
 
+proc getMsg*(c: ActorCont, idx: Natural): Message {.cpsVoodoo.} =
+  let actor = c.actor
+  if idx < actor[].msgQueue.len:
+    result = actor[].msgQueue[idx]
+
+
+proc dropMsg*(c: ActorCont) {.cpsVoodoo.} =
+  c.actor[].msgQueue.shrink(1)
+
+
 # Try to receive a message, returns `nil` if no messages available or matched
 # the passed filter
 
