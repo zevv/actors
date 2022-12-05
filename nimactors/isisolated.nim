@@ -78,7 +78,11 @@ proc assertIsolated*[T:ref](v: T, expected=0) =
     #echo "=== ", typeof(T), " ", rc
     if rc > expected:
       echo "isolation: ", typeof(T), " ", rc
-      raise newException(NotIsolatedError, $v)
+      raise NotIsolatedError.newException:
+        when compiles($v):
+          $v
+        else:
+          repr(v)
   when false:
     {.cast(gcsafe).}: # whiner
       doassert isIsolated(v)
