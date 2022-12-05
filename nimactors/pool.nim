@@ -30,10 +30,10 @@ type
     workers: seq[ref Worker]
 
     # This is where the continuations wait when not running
-    workLock: Lock
-    stop: bool
-    workCond: Cond
-    workQueue: Deque[Actor] # actor that needs to be run asap on any worker
+    lock: Lock
+    stop {.guard:lock.}: bool
+    cond {.guard:lock.}: Cond
+    workQueue {.guard:lock.}: Deque[Actor] # actor that needs to be run asap on any worker
 
   ActorCont* = ref object of Continuation
     actor*: Actor
@@ -56,10 +56,10 @@ type
     links*: seq[Actor]
 
     lock*: Lock
-    state*: State
-    sigQueue*: Deque[Signal]
-    c*: Continuation
-    signalFd*: cint
+    state* {.guard:lock.}: State
+    sigQueue* {.guard:lock.}: Deque[Signal]
+    c* {.guard:lock.}: Continuation
+    signalFd* {.guard:lock.}: cint
 
   Actor* = object
     p*: ptr ActorObject
@@ -147,6 +147,18 @@ proc pass*(cFrom, cTo: ActorCont): ActorCont =
   cTo
 
 
+# locking templates
+
+template withLock(pool: ptr Pool or ref Pool, code: typed) =
+  withLock pool.lock:
+    {.locks: [pool.lock].}:
+      code
+
+template withLock(actor: Actor, code: typed) =
+  withLock actor[].lock:
+    {.locks: [actor[].lock].}:
+      code
+
 # handle incoming signal queue
 
 proc handleSignals(actor: Actor) =
@@ -154,7 +166,7 @@ proc handleSignals(actor: Actor) =
   while true:
 
     var sig: Signal
-    withLock actor[].lock:
+    actor.withLock:
       if actor[].sigQueue.len() == 0:
         break
       sig = actor[].sigQueue.popFirst()
@@ -163,7 +175,8 @@ proc handleSignals(actor: Actor) =
       actor[].msgQueue.addLast(sig.Message)
 
     elif sig of SigKill:
-      actor[].state = Killed
+      actor.withLock:
+        actor[].state = Killed
 
     elif sig of SigLink:
       actor[].links.add sig.src
@@ -178,7 +191,7 @@ proc handleSignals(actor: Actor) =
 
 proc trySuspend*(actor: Actor, c: sink Continuation): bool =
 
-  withLock actor[].lock:
+  actor.withLock:
     if actor[].sigQueue.len == 0:
       actor[].c = move c
       if actor[].state == Running:
@@ -194,12 +207,12 @@ proc trySuspend*(actor: Actor, c: sink Continuation): bool =
 
 proc resume*(pool: ptr Pool, actor: Actor) =
   var fd: cint
-  withLock pool.workLock:
-    withLock actor[].lock:
+  pool.withLock:
+    actor.withLock:
       if actor[].state == Suspended:
         actor[].state = Queued
         pool.workQueue.addLast(actor)
-        pool.workCond.signal()
+        pool.cond.signal()
       fd = actor[].signalFd
 
   if fd != 0.cint:
@@ -212,20 +225,20 @@ proc resume*(pool: ptr Pool, actor: Actor) =
 proc jield*(actor: Actor, c: sink ActorCont) =
   actor.handleSignals()
   let pool = c.pool
-  withLock pool.workLock:
-    withLock actor[].lock:
+  pool.withLock:
+    actor.withLock:
       doAssert actor[].state == Running
       if actor[].state != Killed:
         actor[].state = Queued
         actor[].c = move c
         pool.workQueue.addLast(actor)
-        pool.workCond.signal()
+        pool.cond.signal()
 
 
 # Set signal file descriptor
 
 proc setSignalFd*(actor: Actor, fd: cint) =
-  withLock actor[].lock:
+  actor.withLock:
     actor[].signalFd = fd
 
 
@@ -235,14 +248,11 @@ proc send*(actor: Actor, sig: sink Signal, src: Actor) =
   #echo "  ", src, " -> ", actor
   sig.src = src
 
-  withLock actor[].lock:
+  actor.withLock:
     if actor[].state notin {Killed, Dead}:
       actor[].sigQueue.addLast(sig)
- 
-  if actor == src:
-    actor.handleSignals()
-  else:
-    actor[].pool.resume(actor)
+
+  actor[].pool.resume(actor)
 
 
 # Link two processes: if one goes down, the other gets killed as well
@@ -263,9 +273,9 @@ proc kill*(actor: Actor) =
 
 proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = nil) =
 
-  withLock actor[].lock:
+  actor.withLock:
     actor[].state = Dead
-  
+
   actor.handleSignals()
 
   # Inform the parent of the death of their child
@@ -293,7 +303,7 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
   for link in actor[].links:
     kill(link)
 
-  withLock actor[].lock:
+  actor.withLock:
     actor[].sigQueue.clear()
     # Drop the continuation
     if not actor[].c.isNil:
@@ -321,13 +331,13 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     var actor: Actor
     var c: Continuation
 
-    withLock pool.workLock:
+    pool.withLock:
       while pool.workQueue.len == 0 and not pool.stop:
-        pool.workCond.wait(pool.workLock)
+        pool.cond.wait(pool.lock)
       if pool.stop:
         break
       actor = pool.workQueue.popFirst()
-      withLock actor[].lock:
+      actor.withLock:
         if actor[].state == Dead:
           continue
         doAssert actor[].state == Queued
@@ -353,12 +363,11 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       pool.exit(actor, Normal)
     else:
       var state: State
-      withLock actor[].lock:
+      actor.withLock:
         state = actor[].state
       if state == Killed:
         pool.exit(actor, Killed)
     
-
 
 proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =
 
@@ -376,7 +385,8 @@ proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false):
 
   c.pool = pool
   c.actor = actor
-  actor[].c = move c
+  actor.withLock:
+    actor[].c = move c
 
   if linked:
     link(actor, parent)
@@ -392,8 +402,9 @@ proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false):
 proc newPool*(nWorkers: int = countProcessors()): ref Pool =
 
   var pool = new Pool
-  initLock pool.workLock
-  initCond pool.workCond
+  initLock pool.lock
+  pool.withLock:
+    initCond pool.cond
   pool.actorPidCounter.store(1)
 
   for i in 0..<nWorkers:
@@ -420,9 +431,9 @@ proc join*(pool: ref Pool) =
         break
     os.sleep(10)
 
-  withLock pool.workLock:
+  pool.withLock:
     pool.stop = true
-    pool.workCond.broadcast()
+    pool.cond.broadcast()
 
   for worker in pool.workers:
     worker.thread.joinThread()
