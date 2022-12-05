@@ -15,6 +15,8 @@ type
 
   Message3 = ref object of Message
     thing: float
+  
+  Message4 = ref object of Message
 
 
 proc sender(dst: Actor) {.actor.} =
@@ -23,6 +25,8 @@ proc sender(dst: Actor) {.actor.} =
   send(dst, Message2(name: "charlie"))
   send(dst, Message1(val: 124))
   send(dst, Message1(val: 123))
+  send(dst, Message1(val: 123))
+  send(dst, Message4())
 
 
 proc main() {.actor.} =
@@ -44,6 +48,10 @@ proc main() {.actor.} =
 
       Message3():
         echo "Got Message3"
+      
+      Message4():
+        echo "Got Message4, bye"
+        break
 
 
   echo "all good"
