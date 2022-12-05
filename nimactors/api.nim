@@ -49,6 +49,12 @@ proc self*(c: ActorCont): Actor {.cpsVoodoo.} =
   c.actor
 
 
+# Starts monitoring the given actor
+
+proc monitor*(c: ActorCont, slave: Actor) {.cpsVoodoo.} =
+  c.actor.monitor(slave)
+
+
 # Yield the continuation by storing it back into the actor object; it can later
 # be resumed by calling toWorkQueue
 

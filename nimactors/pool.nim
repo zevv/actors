@@ -5,6 +5,7 @@ import std/locks
 import std/deques
 import std/strformat
 import std/tables
+import std/sets
 import std/posix
 import std/atomics
 import std/times
@@ -51,9 +52,9 @@ type
     rc*: Atomic[int]
     pool*: ptr Pool
     pid*: int
-    parent*: Actor
     msgQueue*: Deque[Message]
-    links*: seq[Actor]
+    monitors*: HashSet[Actor]
+    links*: HashSet[Actor]
 
     lock*: Lock
     state* {.guard:lock.}: State
@@ -70,6 +71,8 @@ type
   SigKill = ref object of Signal
 
   SigLink = ref object of Signal
+
+  SigMonitor = ref object of Signal
 
   Message* = ref object of Signal
 
@@ -179,7 +182,11 @@ proc handleSignals(actor: Actor) =
         actor[].state = Killed
 
     elif sig of SigLink:
-      actor[].links.add sig.src
+      actor[].links.incl sig.src
+    
+    elif sig of SigMonitor:
+      echo actor, " monitored by ", sig.src
+      actor[].monitors.incl sig.src
 
     else:
       echo actor, ": rx unknown signal"
@@ -257,9 +264,13 @@ proc send*(actor: Actor, sig: sink Signal, src: Actor) =
 # Link two processes: if one goes down, the other gets killed as well
 
 proc link*(actor: Actor, peer: Actor) =
-  actor[].links.add(peer)
+  actor[].links.incl(peer)
   peer.send(SigLink(), actor)
 
+# Monitor a process
+
+proc monitor*(actor: Actor, peer: Actor) =
+  peer.send(SigMonitor(), actor)
 
 # Kill an actor
 
@@ -278,17 +289,18 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
   actor.handleSignals()
 
   # Inform the parent of the death of their child
-  if not actor[].parent.isnil:
+  if actor[].monitors.len > 0:
     # getCurrentException() returns a ref to a global .threadvar, which is not
     # safe to carry around. As a workaround, create a fresh exception and copy
     # some of the fields. TODO: what about the stack frames?
-    var ex: ref Exception
-    let exCur = getCurrentException()
-    if not exCur.isNil:
-      ex = new Exception
-      ex.name = exCur.name
-      ex.msg = exCur.msg
-    actor[].parent.send(MessageExit(actor: actor, reason: reason, ex: ex), Actor())
+    for monitor in actor[].monitors:
+      var ex: ref Exception
+      let exCur = getCurrentException()
+      if not exCur.isNil:
+        ex = new Exception
+        ex.name = exCur.name
+        ex.msg = exCur.msg
+      monitor.send(MessageExit(actor: actor, reason: reason, ex: ex), Actor())
   else:
     # This actor has no parent, dump termination info to console
     echo &"Actor {actor} has terminated, reason: {reason}"
@@ -310,8 +322,8 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
       actor[].c = nil
 
   actor[].msgQueue.clear()
-  actor[].links.setLen(0)
-  actor[].parent = Actor()
+  actor[].links.clear()
+  actor[].monitors.clear()
 
   pool.actorCount -= 1
 
@@ -378,7 +390,6 @@ proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false):
   a.pool = pool
   a.rc.store(0)
   a.lock.initLock()
-  a.parent = parent
   var actor = Actor()
   actor.p = a
 
@@ -386,6 +397,9 @@ proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false):
   c.actor = actor
   actor.withLock:
     actor[].c = move c
+
+  if not parent.isNil:
+    a.monitors.incl(parent)
 
   if linked:
     link(actor, parent)

@@ -15,6 +15,7 @@ export hatchAux
 export join
 export kill
 export link
+export monitor
 export newPool
 export trySuspend
 export pass
@@ -34,6 +35,7 @@ export send
 export setSignalFd
 export suspend
 export tryRecv
+export monitor
 
 import nimactors/receivemacro
 export receive
