@@ -1,9 +1,8 @@
 
 # Send data between pairs of actors through a unix pipe 
 
-import pkg/balls
 when not defined(release):
-  skip"this is slow on debug"
+  quit 0 # too slow
 
 import std/os
 import std/syncio
