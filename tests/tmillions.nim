@@ -1,4 +1,8 @@
 
+import pkg/balls
+when not defined(release):
+  skip"this is slow on debug"
+
 import std/os
 import std/syncio
 import std/math

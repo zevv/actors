@@ -227,7 +227,6 @@ proc jield*(actor: Actor, c: sink ActorCont) =
   let pool = c.pool
   pool.withLock:
     actor.withLock:
-      doAssert actor[].state == Running
       if actor[].state != Killed:
         actor[].state = Queued
         actor[].c = move c
