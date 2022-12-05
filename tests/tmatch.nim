@@ -26,7 +26,6 @@ proc sender(dst: Actor) {.actor.} =
   send(dst, Message1(val: 124))
   send(dst, Message1(val: 123))
   send(dst, Message1(val: 123))
-  send(dst, Message4())
 
 
 proc main() {.actor.} =
@@ -49,10 +48,9 @@ proc main() {.actor.} =
       Message3():
         echo "Got Message3"
       
-      Message4():
-        echo "Got Message4, bye"
+      r = MessageExit(reason: r):
+        echo "Got MessageExit, reason: ", r
         break
-
 
   echo "all good"
 
