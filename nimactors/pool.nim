@@ -246,7 +246,7 @@ proc setSignalFd*(actor: Actor, fd: cint) =
 
 # Send a message from src to dst
 
-proc send*(actor: Actor, sig: sink Signal, src: Actor) =
+proc sendSig*(actor: Actor, sig: sink Signal, src: Actor) =
   #echo "  ", src, " -> ", actor
   sig.src = src
 
@@ -261,17 +261,17 @@ proc send*(actor: Actor, sig: sink Signal, src: Actor) =
 
 proc link*(actor: Actor, peer: Actor) =
   actor[].links.add(peer)
-  peer.send(SigLink(), actor)
+  peer.sendSig(SigLink(), actor)
 
 # Monitor a process
 
 proc monitor*(actor: Actor, peer: Actor) =
-  peer.send(SigMonitor(), actor)
+  peer.sendSig(SigMonitor(), actor)
 
 # Kill an actor
 
 proc kill*(actor: Actor) =
-  actor.send(SigKill(), Actor())
+  actor.sendSig(SigKill(), Actor())
 
 
 # Signal termination of an actor; inform the parent and kill any linked
@@ -296,7 +296,7 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
         ex = new Exception
         ex.name = exCur.name
         ex.msg = exCur.msg
-      monitor.send(MessageExit(actor: actor, reason: reason, ex: ex), Actor())
+      monitor.sendSig(MessageExit(actor: actor, reason: reason, ex: ex), Actor())
   else:
     # This actor has no parent, dump termination info to console
     echo &"Actor {actor} has terminated, reason: {reason}"

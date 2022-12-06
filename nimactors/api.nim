@@ -22,7 +22,6 @@ macro actor*(n: untyped): untyped =
 # Hatch an actor from within an actor
 
 proc hatchAux*(c: ActorCont, newActor: sink ActorCont, link: bool): Actor {.cpsVoodoo.} =
-  assertIsolated(c, 1)
   c.pool.hatchAux(newActor, c.actor, link)
 
 
@@ -73,11 +72,14 @@ proc jield*(c: sink ActorCont): ActorCont {.cpsMagic.} =
   c.actor.jield(c)
 
 
+proc sendAux*(c: ActorCont, dst: Actor, msg: sink Message) {.cpsVoodoo.} =
+  dst.sendSig(msg, c.actor)
+
 # Send a message to another actor
 
-proc send*(c: ActorCont, dst: Actor, msg: sink Message) {.cpsVoodoo.} =
-  dst.send(msg, c.actor)
-
+template send*(dst: Actor, msg: typed) =
+  assertIsolated(msg)
+  dst.sendAux(msg)
 
 
 proc getMsg*(c: ActorCont, idx: Natural): Message {.cpsVoodoo.} =

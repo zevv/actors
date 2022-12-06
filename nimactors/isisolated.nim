@@ -2,8 +2,6 @@
 # TODO: figure out how to support refs in objects, reordering procs
 #       and adding fwd declarations causes nim to complain about gcsafe
 
-# Defenitions below stolen from lib/system/arc.nim
-
 
 when defined(gcOrc):                                          
   const          
@@ -35,54 +33,43 @@ template head(p: pointer): Cell =
   cast[Cell](cast[int](p) -% sizeof(RefHeader))
 
 
-proc isIsolated*[T: not (ref or seq or array or object or tuple)](v: T): bool =
-  true
-
-
-proc isIsolated*[T: seq or array](vs: T): bool =
-  for v in vs:
-    if not isIsolated(v):
-      return false
-  true
-
-
-proc isIsolated*[T: (object or tuple) and not ref](v: T): bool =
-  for k, v in fieldPairs(v):
-    let iso = isIsolated(v)
-    #echo "- ", k, " ", typeof(v), " ", iso
-    if not iso:
-      return false
-  true
-
-
-proc isIsolated*[T: ref](v: T): bool =
-  let p = cast[pointer](v)
-  if not p.isNil:
-    let rc = head(p).rc shr rcShift
-    if rc > 0:
-      false
-    else:
-      isIsolated(v[])
-  else:
-    true
-
 proc getRc*[T:ref](v: T): int =
   let p = cast[pointer](v)
   if p != nil:
     result = head(p).rc shr rcShift
 
+
+
+proc isIsolated*[T: not (ref or seq or array or object or tuple)](v: T): bool =
+  #echo "- ", typeof(v)
+  true
+
+proc isIsolated*[T: seq or array](vs: T): bool =
+  #echo "- ", typeof(vs)
+  for v in vs:
+    if not isIsolated(v):
+      return false
+  true
+
+proc isIsolated*[T: (object or tuple) and not ref](v: T): bool =
+  #echo "- ", typeof(v)
+  for k, v in fieldPairs(v):
+    #echo "* ", k
+    let iso = isIsolated(v)
+    if not iso:
+      raise newException(NotIsolatedError, "field '" & k & "' in '" & $typeof(v) & "' is not isolated")
+      return false
+  true
+
+proc isIsolated*[T: ref](v: T): bool =
+  let rc = getRc(v)
+  #echo "- ref ", typeof(v), ": ", rc
+  if rc > 0:
+    false
+  else:
+    isIsolated v[]
+
 proc assertIsolated*[T:ref](v: T, expected=0) =
-  let p = cast[pointer](v)
-  if p != nil:
-    let rc = head(p).rc shr rcShift
-    #echo "=== ", typeof(T), " ", rc
-    if rc > expected:
-      echo "isolation: ", typeof(T), " ", rc
-      raise NotIsolatedError.newException:
-        when compiles($v):
-          $v
-        else:
-          repr(v)
-  when false:
-    {.cast(gcsafe).}: # whiner
-      doassert isIsolated(v)
+  {.cast(gcsafe).}:
+    if not isIsolated(v):
+      raise newException(NotIsolatedError, "ref of type '" & $typeof(v) & "' is not isolated")
