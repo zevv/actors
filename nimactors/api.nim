@@ -81,6 +81,12 @@ template send*(dst: Actor, msg: typed) =
   assertIsolated(msg)
   dst.sendAux(msg)
 
+# Send a message to another actor
+
+template send*(dst: Actor, msg: typed, src: Actor) =
+  assertIsolated(msg)
+  sendSig(dst, msg, src)
+
 
 proc getMsg*(c: ActorCont, idx: Natural): Message {.cpsVoodoo.} =
   let actor = c.actor
