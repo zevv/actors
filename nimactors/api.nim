@@ -1,6 +1,8 @@
 
 import std/locks
 import std/macros
+import std/os
+import std/strutils
 import std/deques
 import std/atomics
 
@@ -67,7 +69,7 @@ proc suspend*(c: sink ActorCont): ActorCont {.cpsMagic.} =
 
 # Move a running process to the back of the work queue
 
-proc jield*(c: ActorCont): ActorCont {.cpsMagic.} =
+proc jield*(c: sink ActorCont): ActorCont {.cpsMagic.} =
   c.actor.jield(c)
 
 

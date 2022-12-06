@@ -24,6 +24,12 @@ run()
 		asan)
 			nim c ${nimflags} -d:danger --passC:-fsanitize=address --passL:-fsanitize=address ${src} && ${bin}
 			;;
+		tsand)
+			nim c ${nimflags} --passC:-fsanitize=thread --passL:-fsanitize=thread ${src} && ${bin}
+			;;
+		asand)
+			nim c ${nimflags} --passC:-fsanitize=address --passL:-fsanitize=address ${src} && ${bin}
+			;;
 		valgrind)
 			nim c ${nimflags} -d:danger ${src}  && valgrind --error-exitcode=255 --quiet --leak-check=full --show-leak-kinds=all ${bin}
 			;;

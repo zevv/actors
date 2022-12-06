@@ -11,6 +11,12 @@ proc thing(i: int) {.actor.} =
     jield()
 
 proc main() {.actor.} =
+
+  jield()
+  jield()
+  jield()
+  jield()
+
   let pid1 = hatch thing(1)
   let pid2 = hatch thing(2)
   os.sleep(50)

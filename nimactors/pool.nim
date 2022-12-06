@@ -45,7 +45,7 @@ type
     pool: ptr Pool
 
   State = enum
-    Suspended, Queued, Running, Killed, Dead
+    Suspended, Queued, Running, Jielding, Killed, Dead
 
   ActorObject* = object
     rc*: Atomic[int]
@@ -124,9 +124,6 @@ proc isNil*(actor: Actor): bool =
 proc `$`*(pool: ptr Pool): string =
   return "pool"
 
-proc `$`*(c: ActorCont): string =
-  if c.isNil: "actorcont.nil" else: "actorcont." & $c.actor
-
 proc `$`*(worker: ref Worker | ptr Worker): string =
   return "worker." & $worker.id
 
@@ -139,6 +136,8 @@ proc `$`*(m: Signal): string =
 proc `$`*(m: Message): string =
   if not m.isNil: "msg src=" & $m.src else: "msg.nil"
 
+proc `$`*(c: ActorCont): string =
+  if c.isNil: "actorcont.nil" else: "actorcont." & $c.actor
 
 # CPS `pass` implementation
 
@@ -226,18 +225,15 @@ proc resume*(pool: ptr Pool, actor: Actor) =
     discard posix.write(fd, b.addr, sizeof(b))
 
 
-# Move a running process to the back of the work queue
+# Indicate the actor has yielded
 
 proc jield*(actor: Actor, c: sink ActorCont) =
-  actor.handleSignals()
-  let pool = c.pool
-  pool.withLock:
-    actor.withLock:
-      if actor[].state != Killed:
-        actor[].state = Queued
-        actor[].c = move c
-        pool.workQueue.addLast(actor)
-        pool.cond.signal()
+  actor.withLock:
+    if actor[].state == Running:
+      actor[].c = move c
+      actor[].state = Jielding
+    else:
+      doAssert actor[].state == Killed
 
 
 # Set signal file descriptor
@@ -340,7 +336,6 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     # Wait for the next actor to be available in the work queue
     var actor: Actor
     var c: Continuation
-
     pool.withLock:
       while pool.workQueue.len == 0 and not pool.stop:
         pool.cond.wait(pool.lock)
@@ -354,30 +349,32 @@ proc workerThread(worker: ptr Worker) {.thread.} =
         actor[].state = Running
         c = move actor[].c
 
+    # Check the actor's signal queue
     actor.handleSignals()
 
+    # Trampoline the actor's continuation
     try:
-
-      # Trampoline the actor's continuation if in the Running state
-
       {.cast(gcsafe).}:
         while not c.isNil and not c.fn.isNil:
           c = c.fn(c)
-
     except:
       pool.exit(actor, Error)
-        
 
-    # Cleanup if continuation has finished or was killed
+    # Handle new actor state
+    var state: State
+    actor.withLock:
+      state = actor[].state
     if c.finished:
       pool.exit(actor, Normal)
-    else:
-      var state: State
-      actor.withLock:
-        state = actor[].state
-      if state == Killed:
-        pool.exit(actor, Killed)
-    
+    elif state == Jielding:
+      pool.withLock:
+        actor.withLock:
+          actor[].state = Queued
+          pool.workQueue.addLast(actor)
+          pool.cond.signal()
+    elif state == Killed:
+      pool.exit(actor, Killed)
+
 
 proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =
 
