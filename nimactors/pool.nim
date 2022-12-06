@@ -228,6 +228,7 @@ proc resume*(pool: ptr Pool, actor: Actor) =
 # Indicate the actor has yielded
 
 proc jield*(actor: Actor, c: sink ActorCont) =
+  actor.handleSignals()
   actor.withLock:
     if actor[].state == Running:
       actor[].c = move c
