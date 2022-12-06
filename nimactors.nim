@@ -1,48 +1,42 @@
 
 import cps
-export cps
-
-
 import nimactors/pool
+import nimactors/isisolated
+import nimactors/receivemacro
+import nimactors/api
+
 export Actor
 export ActorCont
 export ExitReason
 export Message
 export MessageExit
 export Pool
+
 export `$`
+export actor
+export call
+export cps
+export dropMsg
+export getMsg
+export hatch
 export hatchAux
+export hatchLinked
+export isIsolated
+export jield
 export join
 export kill
 export link
 export monitor
 export newPool
-export trySuspend
 export pass
-
-import nimactors/api
-export actor
-export hatch
-export hatchAux
-export hatchLinked
-export jield
-export kill
+export receive
 export recv
-export getMsg
-export dropMsg
 export self
-export sendSig
-export sendAux
 export send
+export sendAux
 export sendCps
-export call
+export sendSig
 export setSignalFd
 export suspend
 export tryRecv
-export monitor
-
-import nimactors/isisolated
-export isIsolated
-
-import nimactors/receivemacro
-export receive
+export trySuspend
