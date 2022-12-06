@@ -115,7 +115,6 @@ proc evqActor*(fdWake: cint) {.actor.} =
     let n = epoll_wait(evq.epfd, es[0].addr, es.len.cint, timeout)
     trace "epollout " & $n
 
-    evq.now = getMonoTime().ticks.float / 1.0e9
     evq.handleTimers()
 
     var i = 0
@@ -137,16 +136,16 @@ proc evqActor*(fdWake: cint) {.actor.} =
 
 # Public API
 
-proc addTimer*(c: ActorCont, evq: Evq, interval: float) {.cpsVoodoo.} =
-  evq.Actor.send(MessageEvqAddTimer(interval: interval), c.actor)
+proc addTimer*(evq: Evq, interval: float) {.actor.} =
+  send(evq.Actor, MessageEvqAddTimer(interval: interval))
 
 
-proc addFd*(c: ActorCont, evq: Evq, fd: cint, events: cshort) {.cpsVoodoo.} =
-  evq.Actor.send(MessageEvqAddFd(fd: fd, events: events), c.actor)
+proc addFd*(evq: Evq, fd: cint, events: cshort) {.actor.} =
+  send(evq.Actor, MessageEvqAddFd(fd: fd, events: events))
 
 
-proc delFd*(c: ActorCont, evq: Evq, fd: cint) {.cpsVoodoo.} =
-  evq.Actor.send(MessageEvqDelFd(fd: fd), c.actor)
+proc delFd*(evq: Evq, fd: cint) {.actor.} =
+  send(evq.Actor, MessageEvqDelFd(fd: fd))
 
 
 proc sleep*(evq: Evq, interval: float) {.actor.} =

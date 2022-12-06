@@ -34,6 +34,8 @@ export self
 export sendSig
 export sendAux
 export send
+export sendCps
+export call
 export setSignalFd
 export suspend
 export tryRecv

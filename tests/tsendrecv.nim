@@ -8,24 +8,33 @@ type
   Foo = ref object
     val: int
 
-  MessageHello = ref object of Message
-    foo: Foo
+  MessageReq = ref object of Message
+    val: int
+
+  MessageRsp = ref object of Message
+    val: int
 
 
 proc alice() {.actor.} =
   while true:
-    let m = recv()
-    m.src.send(MessageHello())
+    let req = recv(MessageReq)
+    let rsp = MessageRsp(val: req.val * req.val)
+    req.src.sendCps(rsp)
 
 
 proc bob(alice: Actor) {.actor.} =
+
   var i = 0
 
   let t1 = getMonoTime().ticks.float / 1.0e9
+
   while i < 1_000_000:
-    alice.send(MessageHello())
-    discard recv()
+    let req = MessageReq(val: i)
+    alice.sendCps(req)
+    let rsp = recv().MessageRsp
+    if (i mod 100_000) == 0: echo rsp.val
     inc i
+
   let t2 = getMonoTime().ticks.float / 1.0e9
 
   let msg_s = (i.float / (t2-t1)).int
@@ -37,7 +46,7 @@ proc bob(alice: Actor) {.actor.} =
 
 
 proc main() =
-  let pool = newPool(2)
+  let pool = newPool(4)
   let a = pool.hatch alice()
   let b = pool.hatch bob(a)
   pool.join()

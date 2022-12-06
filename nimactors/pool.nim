@@ -257,6 +257,44 @@ proc sendSig*(actor: Actor, sig: sink Signal, src: Actor) =
   actor[].pool.resume(actor)
 
 
+# Send a message from src to dsg, using continuation passing instead of the
+# work queue when possible
+
+proc sendCps*(c: sink ActorCont, dst: Actor, sig: sink Signal): Continuation {.cpsMagic.} =
+
+  let src = c.actor
+  sig.src = src
+
+  dst.withLock:
+
+    # Drop message if destination is dead
+    if dst[].state in {Killed, Dead}:
+      return
+
+    dst[].sigQueue.addLast(sig)
+    # Fast path: if dst is currenly suspended, place the message straight
+    # into the dst sigQueue and pass control to dst
+    if dst[].state == Suspended:
+      result = move dst[].c
+      dst[].c = nil
+      dst[].state = Running
+
+  if not result.isNil:
+    # Fast path: suspend ourselves and pass control to dst
+    #echo "  ", src, " => ", dst
+    src.withLock:
+      dst.handleSignals()
+      src[].state = Suspended
+      src[].c = move c
+  else:
+    # Regular path: place message in the dst sigQueue and send
+    # dst to the work queue
+    #echo "  ", src, " -> ", dst
+    dst[].pool.resume(dst)
+    result = c
+
+
+
 # Link two processes: if one goes down, the other gets killed as well
 
 proc link*(actor: Actor, peer: Actor) =
@@ -343,12 +381,15 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       if pool.stop:
         break
       actor = pool.workQueue.popFirst()
-      actor.withLock:
-        if actor[].state == Dead:
-          continue
-        doAssert actor[].state == Queued
-        actor[].state = Running
-        c = move actor[].c
+
+    # Update actor state to 'Running' and take out the continuation
+    # so it can be trampolined
+    actor.withLock:
+      if actor[].state == Dead:
+        continue
+      doAssert actor[].state == Queued
+      actor[].state = Running
+      c = move actor[].c
 
     # Check the actor's signal queue
     actor.handleSignals()

@@ -88,6 +88,9 @@ template send*(dst: Actor, msg: typed, src: Actor) =
   sendSig(dst, msg, src)
 
 
+# Get message number `idx` from the actors message queue, returns nil
+# if no such message
+#
 proc getMsg*(c: ActorCont, idx: Natural): Message {.cpsVoodoo.} =
   let actor = c.actor
   if idx < actor[].msgQueue.len:
