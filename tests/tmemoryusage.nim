@@ -26,10 +26,10 @@ proc main() {.actor.} =
   echo "memore usage per actor: ", usage, " bytes"
 
   when defined(danger):
-    doAssert usage < 512
+    doAssert usage < 796
 
   when defined(release):
-    doAssert usage < 512
+    doAssert usage < 796
 
   os.sleep(100)
   echo "all good"
