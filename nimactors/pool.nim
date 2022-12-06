@@ -5,7 +5,6 @@ import std/locks
 import std/deques
 import std/strformat
 import std/tables
-import std/sets
 import std/posix
 import std/atomics
 import std/times
@@ -53,8 +52,8 @@ type
     pool*: ptr Pool
     pid*: int
     msgQueue*: Deque[Message]
-    monitors*: HashSet[Actor]
-    links*: HashSet[Actor]
+    monitors*: seq[Actor]
+    links*: seq[Actor]
 
     lock*: Lock
     state* {.guard:lock.}: State
@@ -182,11 +181,11 @@ proc handleSignals(actor: Actor) =
         actor[].state = Killed
 
     elif sig of SigLink:
-      actor[].links.incl sig.src
+      actor[].links.add sig.src
     
     elif sig of SigMonitor:
       echo actor, " monitored by ", sig.src
-      actor[].monitors.incl sig.src
+      actor[].monitors.add sig.src
 
     else:
       echo actor, ": rx unknown signal"
@@ -264,7 +263,7 @@ proc send*(actor: Actor, sig: sink Signal, src: Actor) =
 # Link two processes: if one goes down, the other gets killed as well
 
 proc link*(actor: Actor, peer: Actor) =
-  actor[].links.incl(peer)
+  actor[].links.add(peer)
   peer.send(SigLink(), actor)
 
 # Monitor a process
@@ -322,8 +321,8 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
       actor[].c = nil
 
   actor[].msgQueue.clear()
-  actor[].links.clear()
-  actor[].monitors.clear()
+  actor[].links.setLen(0)
+  actor[].monitors.setLen(0)
 
   pool.actorCount -= 1
 
@@ -399,7 +398,7 @@ proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false):
     actor[].c = move c
 
   if not parent.isNil:
-    a.monitors.incl(parent)
+    a.monitors.add(parent)
 
   if linked:
     link(actor, parent)
