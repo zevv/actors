@@ -39,6 +39,9 @@ run()
 		bitline)
 			nim c ${nimflags} -d:danger -d:optbitline:bitline.log ${src} && ${bin}
 			;;
+		release)
+			nim c ${nimflags} -d:release ${src} && ${bin}
+			;;
 		debug)
 			nim c ${nimflags} ${src} && ${bin}
 			;;
