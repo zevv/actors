@@ -7,23 +7,21 @@ import nimactors/mallinfo
 proc other() {.actor.} =
   discard recv()
 
-
 proc main() {.actor.} =
-    
-  let m1 = mallinfo2().uordblks
-  discard hatchLinked other()
-  discard hatchLinked other()
-  discard hatchLinked other()
-  discard hatchLinked other()
-  discard hatchLinked other()
-  discard hatchLinked other()
-  discard hatchLinked other()
-  discard hatchLinked other()
-  discard hatchLinked other()
-  discard hatchLinked other()
-  let m2 = mallinfo2().uordblks
 
-  let usage = (m2 - m1).int / 10
+  var i = 0
+  var mtot = 0.uint
+
+  while i < 100:
+    let m1 = mallinfo2().uordblks
+    let pid = hatch other()
+    let m2 = mallinfo2().uordblks
+    os.sleep(1)
+    kill pid
+    mtot += (m2 - m1)
+    inc i
+
+  let usage = mtot.int / i
 
   echo "memore usage per actor: ", usage, " bytes"
 
@@ -33,6 +31,7 @@ proc main() {.actor.} =
   when defined(release):
     doAssert usage < 512
 
+  os.sleep(100)
   echo "all good"
 
 

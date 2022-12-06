@@ -1,0 +1,16 @@
+
+digraph dot {
+
+	Suspended -> Queued [ label = "resume()" ];
+
+	Queued -> Running;
+
+	Running -> Queued [ label = "jield()" ];
+
+	Running -> Suspended [ label = "suspend() &&\nsigQueue.empty" ];
+
+	Running -> Killed [ label = "rx SigKill" ];
+
+	Killed -> Dead;
+
+}
