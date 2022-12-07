@@ -53,11 +53,6 @@ template `<`(a, b: Timer): bool =
   a.t_when < b.t_when
 
 
-template trace(msg: string) =
-  #echo msg
-  discard
-
-
 
 proc timerfd_create(clock_id: ClockId, flags: cint): cint
      {.cdecl, importc: "timerfd_create", header: "<sys/timerfd.h>".}
@@ -189,7 +184,6 @@ proc evqActor*(nWorkers: int) {.actor.} =
       ei.updateTimer()
 
     (fd, events, src) = MessageEvqAddFd(fd: fd, events: events, src: src):
-      trace "addfd " & $fd
       var ee = EpollEvent(events: events.uint32 or EPOLLET.uint32, data: EpollData(u64: fd.uint64))
       let wid = ei.mapFdToWorkerId(fd)
       let r = epoll_ctl(ei.workers[wid].epfd, EPOLL_CTL_ADD, fd, ee.addr)
@@ -200,7 +194,6 @@ proc evqActor*(nWorkers: int) {.actor.} =
         quit 1
 
     (fd, src) = MessageEvqDelFd(fd: fd, src: src):
-      trace "delfd " & $fd
       let wid = ei.mapFdToWorkerId(fd)
       discard epoll_ctl(ei.workers[wid].epfd, EPOLL_CTL_DEL, fd, nil)
       ei.fds.del(fd)
@@ -214,12 +207,10 @@ proc addTimer*(evq: Evq, interval: float) {.actor.} =
 
 
 proc addFd*(evq: Evq, fd: cint, events: cshort) {.actor.} =
-  trace "send addfd " & $fd
   send(evq.Actor, MessageEvqAddFd(fd: fd, events: events))
 
 
 proc delFd*(evq: Evq, fd: cint) {.actor.} =
-  trace "send delfd " & $fd
   send(evq.Actor, MessageEvqDelFd(fd: fd))
 
 
@@ -232,13 +223,10 @@ proc readAll*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
   var done: int
   evq.addFd(fd, POLLIN)
   while done < size:
-    trace $fd & ": read wait"
     discard recv(MessageEvqEvent)
-    trace $fd & ": read ready"
     while done < size:
       let p = cast[ptr char](cast[Byteaddress](buf) + done)
       let r = posix.read(fd, p, size-done)
-      trace $fd & " read " & $r
       if r > 0:
         done += r
       if r < size-done:
@@ -251,13 +239,10 @@ proc writeAll*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
   var done = 0
   evq.addFd(fd, POLLOUT)
   while done < size:
-    trace $fd & ": write wait"
     discard recv(MessageEvqEvent)
-    trace $fd & ": write ready"
     while done < size:
       let p = cast[ptr char](cast[Byteaddress](buf) + done)
       let r = posix.write(fd, p, size-done)
-      trace $fd & " write " & $r
       if r > 0:
         done += r
       if r < size-done:
