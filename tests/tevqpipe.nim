@@ -15,7 +15,7 @@ import std/atomics
 proc pipe2*(a: array[0..1, cint], flags: cint): cint {.importc, header: "<unistd.h>".}
 
 import nimactors
-import nimactors/lib/evq
+import nimactors/lib/evq2
 
 var rtotal: Atomic[int]
 var wtotal: Atomic[int]
@@ -29,6 +29,8 @@ proc reader(evq: Evq, fd: cint, n: int) {.actor.} =
   while i < n:
     let r = evq.readAll(fd, buf[0].addr, buf.len)
     rtotal += r
+    if i mod 128 == 0:
+      echo "rtotal ", rtotal
     inc i
 
 

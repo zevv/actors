@@ -149,7 +149,6 @@ macro receive*(n: untyped) =
       if not `msg`.isNil:
         `matches`
       else:
-        echo "suspend"
         suspend()
 
   echo nout.repr

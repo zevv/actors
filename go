@@ -54,6 +54,9 @@ run()
 		gdb)
 			nim c ${nimflags} ${src} && gdb ${bin}
 			;;
+		strace)
+			nim c ${nimflags} ${src} && strace -f ${bin}
+			;;
 		all)
 			./go run tests/texit
 			./go valgrind tests/texit
