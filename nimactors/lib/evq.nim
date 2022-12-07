@@ -104,11 +104,10 @@ proc updateTimer(ei: EvqImpl) =
     let t = ei.timers[0]
     newTs.it_value.tv_sec = posix.Time(t.t_when)
     newTs.it_value.tv_nsec = (math.mod(t.t_when, 1.0) * 1.0e9).clong
-    echo "updated ", t.t_when
 
   let r = timerfd_settime(ei.timerfd, TFD_TIMER_ABSTIME, newTs, oldTs)
   if r != 0:
-    echo "timerfd_settime error"
+    echo "timerfd_settime ", strerror(errno)
     quit 1
 
 
@@ -142,7 +141,10 @@ proc evqActor*(nWorkers: int) {.actor.} =
     ew.epfd = epoll_create(1)
 
     var ee = EpollEvent(events: POLLIN.uint32 or EPOLLET.uint32, data: EpollData(u64: ei.timerfd.uint64))
-    discard epoll_ctl(ew.epfd, EPOLL_CTL_ADD, ei.timerfd, ee.addr)
+    let r = epoll_ctl(ew.epfd, EPOLL_CTL_ADD, ei.timerfd, ee.addr)
+    if r != 0:
+      echo "epoll_ctl ", strerror(errno)
+      quit 1
 
     createThread(ew.thread, workerThread, ew[].addr)
 
@@ -159,7 +161,10 @@ proc evqActor*(nWorkers: int) {.actor.} =
         let fd = fds[i]
         if fd == ei.timerFd:
           var val: uint64
-          discard posix.read(ei.timerFd, val.addr, sizeof(val))
+          let r = posix.read(ei.timerFd, val.addr, sizeof(val))
+          if r != sizeof(val):
+            echo "timer read: ", strerror(errno)
+            quit 1
           let t_now = getMonoTime()
           while ei.timers.len > 0 and t_now >= ei.timers[0].t_when:
             let t = ei.timers.pop()
@@ -179,15 +184,17 @@ proc evqActor*(nWorkers: int) {.actor.} =
       var ee = EpollEvent(events: events.uint32 or EPOLLET.uint32, data: EpollData(u64: fd.uint64))
       let wid = ei.mapFdToWorkerId(fd)
       let r = epoll_ctl(ei.workers[wid].epfd, EPOLL_CTL_ADD, fd, ee.addr)
-      if r == 0:
-        ei.fds[fd] = src
-      else:
+      if r != 0:
         echo "epoll_ctl error ", strerror(errno)
         quit 1
+      ei.fds[fd] = src
 
     (fd, src) = MessageEvqDelFd(fd: fd, src: src):
       let wid = ei.mapFdToWorkerId(fd)
-      discard epoll_ctl(ei.workers[wid].epfd, EPOLL_CTL_DEL, fd, nil)
+      let r = epoll_ctl(ei.workers[wid].epfd, EPOLL_CTL_DEL, fd, nil)
+      if r != 0:
+        echo "epoll_ctl error ", strerror(errno)
+        quit 1
       ei.fds.del(fd)
 
 
