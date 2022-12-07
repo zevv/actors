@@ -135,9 +135,37 @@ proc mapFdToWorkerId(ei: EvqImpl, fd: cint): int =
   fd mod ei.workers.len
 
 
-# Handle all actor messages
 
-proc handleMessages(ei: EvqImpl) {.actor.} =
+# Event queue actor implementation
+
+proc evqActor*(nWorkers: int) {.actor.} =
+
+  # Create event queue instance
+
+  var ei = EvqImpl(
+    actor: self(),
+    timerFd: timerfd_create(CLOCK_MONOTONIC, O_NONBLOCK),
+  )
+
+  # Create worker threads
+
+  var i = 0
+  while i < nWorkers:
+
+    var ew = new EvqWorker
+    ew.id = i
+    ew.actor = self()
+    ew.epfd = epoll_create(1)
+
+    var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: ei.timerfd.uint64))
+    discard epoll_ctl(ew.epfd, EPOLL_CTL_ADD, ei.timerfd, ee.addr)
+
+    createThread(ew.thread, workerThread, ew[].addr)
+
+    ei.workers.add ew
+    inc i
+
+  # Actor main loop handles requests from other actors
 
   receive:
 
@@ -176,41 +204,6 @@ proc handleMessages(ei: EvqImpl) {.actor.} =
       let wid = ei.mapFdToWorkerId(fd)
       discard epoll_ctl(ei.workers[wid].epfd, EPOLL_CTL_DEL, fd, nil)
       ei.fds.del(fd)
-
-
-# Event queue actor implementation
-
-proc evqActor*(nWorkers: int) {.actor.} =
-
-  # Create event queue instance
-
-  var ei = EvqImpl(
-    actor: self(),
-    timerFd: timerfd_create(CLOCK_MONOTONIC, O_NONBLOCK),
-  )
-
-  # Create worker threads
-
-  var i = 0
-  while i < nWorkers:
-
-    var ew = new EvqWorker
-    ew.id = i
-    ew.actor = self()
-    ew.epfd = epoll_create(1)
-
-    var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: ei.timerfd.uint64))
-    discard epoll_ctl(ew.epfd, EPOLL_CTL_ADD, ei.timerfd, ee.addr)
-
-    createThread(ew.thread, workerThread, ew[].addr)
-
-    ei.workers.add ew
-    inc i
-
-  # Actor main loop handles requests from other actors
-
-  while true:
-    ei.handleMessages()
 
 
 
