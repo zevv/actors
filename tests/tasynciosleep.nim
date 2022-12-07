@@ -9,7 +9,8 @@ import std/atomics
 
 
 import pkg/nimactors
-import pkg/nimactors/lib/evq2
+import pkg/nimactors/lib/evq
+import pkg/nimactors/lib/asyncio
 
 
 proc main2() {.actor.} =
