@@ -53,7 +53,6 @@ template `<`(a, b: Timer): bool =
   a.t_when < b.t_when
 
 
-
 proc timerfd_create(clock_id: ClockId, flags: cint): cint
      {.cdecl, importc: "timerfd_create", header: "<sys/timerfd.h>".}
 
@@ -89,7 +88,6 @@ proc workerThread(ew: ptr EvqWorker) =
         quit 1
 
 
-
 proc getMonotime(): float =
   var ts: Timespec
   discard clock_gettime(CLOCK_MONOTONIC, ts)
@@ -113,22 +111,12 @@ proc updateTimer(ei: EvqImpl) =
     quit 1
 
 
-# Handle and remove all expired timers from the heap queue
-
-proc handleTimers(ei: EvqImpl) =
-  let t_now = getMonoTime()
-  while ei.timers.len > 0 and t_now >= ei.timers[0].t_when:
-    let t = ei.timers.pop()
-    sendSig(t.actor, MessageEvqTimer(), ei.actor)
-
-
 # Map the file descriptor to a worker ID. For now, this is flat
 # and simple, might need tweaking in the future to avoid stupid
 # distributions
 
 proc mapFdToWorkerId(ei: EvqImpl, fd: cint): int =
   fd mod ei.workers.len
-
 
 
 # Event queue actor implementation
@@ -171,7 +159,10 @@ proc evqActor*(nWorkers: int) {.actor.} =
         if fd == ei.timerFd:
           var val: uint64
           discard posix.read(ei.timerFd, val.addr, sizeof(val))
-          ei.handleTimers()
+          let t_now = getMonoTime()
+          while ei.timers.len > 0 and t_now >= ei.timers[0].t_when:
+            let t = ei.timers.pop()
+            sendSig(t.actor, MessageEvqTimer(), ei.actor)
         else:
           if fd in ei.fds:
             let actor = ei.fds[fd]
@@ -179,8 +170,7 @@ proc evqActor*(nWorkers: int) {.actor.} =
         inc i
 
     (interval, src) = MessageEvqAddTimer(interval: interval, src: src):
-      let t_now = getMonoTime()
-      ei.timers.push Timer(actor: src, t_when: t_now + interval)
+      ei.timers.push Timer(actor: src, t_when: getMonoTime() + interval)
       ei.updateTimer()
 
     (fd, events, src) = MessageEvqAddFd(fd: fd, events: events, src: src):
@@ -205,21 +195,16 @@ proc evqActor*(nWorkers: int) {.actor.} =
 proc addTimer*(evq: Evq, interval: float) {.actor.} =
   send(evq.Actor, MessageEvqAddTimer(interval: interval))
 
-
 proc addFd*(evq: Evq, fd: cint, events: cshort) {.actor.} =
   send(evq.Actor, MessageEvqAddFd(fd: fd, events: events))
-
 
 proc delFd*(evq: Evq, fd: cint) {.actor.} =
   send(evq.Actor, MessageEvqDelFd(fd: fd))
 
-
 proc kill*(actor: Evq) {.borrow.}
-
 
 proc link*(actor: Actor, evq: Evq) =
   link(actor, evq.Actor)
-
 
 proc newEvq*(): Evq {.actor.} =
   var actor = hatch evqActor(2)
