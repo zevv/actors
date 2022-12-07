@@ -6,7 +6,7 @@ import std/tables
 import std/locks
 import std/heapqueue
 
-import ../../nimactors
+import pkg/nimactors
 
 type
 
