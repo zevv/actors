@@ -104,6 +104,7 @@ proc updateTimer(ei: EvqImpl) =
     let t = ei.timers[0]
     newTs.it_value.tv_sec = posix.Time(t.t_when)
     newTs.it_value.tv_nsec = (math.mod(t.t_when, 1.0) * 1.0e9).clong
+    echo "updated ", t.t_when
 
   let r = timerfd_settime(ei.timerfd, TFD_TIMER_ABSTIME, newTs, oldTs)
   if r != 0:
@@ -140,7 +141,7 @@ proc evqActor*(nWorkers: int) {.actor.} =
     ew.actor = self()
     ew.epfd = epoll_create(1)
 
-    var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: ei.timerfd.uint64))
+    var ee = EpollEvent(events: POLLIN.uint32 or EPOLLET.uint32, data: EpollData(u64: ei.timerfd.uint64))
     discard epoll_ctl(ew.epfd, EPOLL_CTL_ADD, ei.timerfd, ee.addr)
 
     createThread(ew.thread, workerThread, ew[].addr)
@@ -163,6 +164,7 @@ proc evqActor*(nWorkers: int) {.actor.} =
           while ei.timers.len > 0 and t_now >= ei.timers[0].t_when:
             let t = ei.timers.pop()
             sendSig(t.actor, MessageEvqTimer(), ei.actor)
+          ei.updateTimer()
         else:
           if fd in ei.fds:
             let actor = ei.fds[fd]
