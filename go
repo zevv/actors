@@ -67,7 +67,7 @@ run()
 			./go debug tests/texit
 			./go run tests/tlink
 			./go run tests/tmillions
-			./go run tests/tevqpipe
+			./go run tests/tasynciopipe
 			figlet "all good"
 			;;
 	esac

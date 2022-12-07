@@ -8,8 +8,8 @@ import std/posix
 import std/atomics
 
 
-import nimactors
-import nimactors/lib/evq
+import pkg/nimactors
+import pkg/nimactors/lib/evq2
 
 
 proc main2() {.actor.} =

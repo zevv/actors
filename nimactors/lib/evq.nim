@@ -1,26 +1,37 @@
 
 import std/epoll
+import std/math
 import std/posix
-import std/monotimes
 import std/tables
+import std/locks
 import std/heapqueue
 
-import ../../nimactors
+import nimactors
 
 type
 
   Evq* = distinct Actor
 
   EvqImpl = ref object
-    epfd: cint
-    fds: Table[cint, Actor]
-    pool: ptr Pool
-    now: float
+    actor: Actor
+    workers: seq[ref EvqWorker]
+    timerFd: cint
     timers*: HeapQueue[Timer]
+    fds: Table[cint, Actor]
+
+  EvqWorker = object
+    id: int
+    actor: Actor
+    epfd: cint
+    thread: Thread[ptr EvqWorker]
 
   Timer = object
-    time: float
+    t_when: float
     actor: Actor
+
+  MessagePollResult = ref object of Message
+    count: cint
+    fds: array[32, cint]
 
   MessageEvqAddTimer* = ref object of Message
     interval: float
@@ -33,104 +44,159 @@ type
     fd: cint
 
   MessageEvqEvent* = ref object of Message
+    fd: cint
+
+  MessageEvqTimer* = ref object of Message
 
 
 template `<`(a, b: Timer): bool =
-  a.time < b.time
+  a.t_when < b.t_when
 
 
-template trace(msg: string) =
-  #echo msg
-  discard
 
-proc handleMessage(evq: EvqImpl, m: Message) {.actor.} =
+proc timerfd_create(clock_id: ClockId, flags: cint): cint
+     {.cdecl, importc: "timerfd_create", header: "<sys/timerfd.h>".}
 
-  if m of MessageEvqAddTimer:
-    let m = m.MessageEvqAddTimer
-    evq.timers.push Timer(actor: m.src, time: evq.now + m.interval)
+proc timerfd_settime(ufd: cint, flags: cint,                      
+                      utmr: var Itimerspec, otmr: var Itimerspec): cint
+     {.cdecl, importc: "timerfd_settime", header: "<sys/timerfd.h>".}
 
-  elif m of MessageEvqAddFd:
-    let m = m.MessageEvqAddFd
-    trace "addfd " & $m.fd
-    var ee = EpollEvent(events: m.events.uint32 or EPOLLET.uint32, data: EpollData(u64: m.fd.uint64))
-    discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, m.fd, ee.addr)
-    evq.fds[m.MessageEvqAddFd.fd] = m.src
-
-  elif m of MessageEvqDelFd:
-    let m = m.MessageEvqDelFd
-    trace "delfd " & $m.fd
-    discard epoll_ctl(evq.epfd, EPOLL_CTL_DEL, m.fd.cint, nil)
-    evq.fds.del(m.fd)
-
-  else:
-    discard
-    #echo "unhandled message"
+const TFD_TIMER_ABSTIME: cint = 1
 
 
-proc updateNow(evq: EvqImpl) =
-    evq.now = getMonoTime().ticks.float / 1.0e9
+# The poll thread is pretty simple: it waits on the pollfd, and sends the
+# results of epoll_wait() to the actor, where the individual fds and timers are
+# handled.
 
-
-proc calculateTimeout(evq: EvqImpl): cint =
-  evq.updateNow()
-  result = -1
-  if evq.timers.len > 0:
-    let timer = evq.timers[0]
-    result = cint(1000 * (timer.time - evq.now + 0.005))
-    result = max(result, 0)
-
-
-template handleTimers(evq: EvqImpl) =
-  evq.updateNow()
-  while evq.timers.len > 0 and evq.now >= evq.timers[0].time:
-    let t = evq.timers.pop
-    send(t.actor, MessageEvqEvent())
-
-
-# This actor is special, as it has to wait on both the epoll and the regular
-# mailbox. This is done by adding a pipe-to-self, which is written by the
-# send() when a message is posted to the mailbox
-
-proc evqActor*(fdWake: cint) {.actor.} =
-
-  var evq = EvqImpl(epfd: epoll_create(1))
-
-  var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: fdWake.uint64))
-  discard epoll_ctl(evq.epfd, EPOLL_CTL_ADD, fdWake, ee.addr)
+proc workerThread(ew: ptr EvqWorker) =
 
   while true:
- 
-    jield()
+
+    var es: array[32, EpollEvent]
+    let n = epoll_wait(ew.epfd, es[0].addr, es.len.cint, -1)
+
+    if n > 0:
+      let m = MessagePollResult(count: n)
+      var i = 0
+      while i < n:
+        m.fds[i] = es[i].data.u64.cint
+        inc i
+      sendSig(ew.actor, m, ew.actor)
+
+    else:
+      if errno != EINTR:
+        echo "epoll_wait error"
+        quit 1
+
+
+
+proc getMonotime(): float =
+  var ts: Timespec
+  discard clock_gettime(CLOCK_MONOTONIC, ts)
+  result = ts.tv_sec.float + ts.tv_nsec.float / 1.0e9
+
+
+# Update the timerfd to reflect the first expiring timer from the heap queue
+
+proc updateTimer(ei: EvqImpl) =
     
-    while true:
-      let m = tryRecv()
-      if not m.isNil:
-        evq.handleMessage(m)
+  var oldTs, newTs: Itimerspec
+
+  if ei.timers.len > 0:
+    let t = ei.timers[0]
+    newTs.it_value.tv_sec = posix.Time(t.t_when)
+    newTs.it_value.tv_nsec = (math.mod(t.t_when, 1.0) * 1.0e9).clong
+
+  let r = timerfd_settime(ei.timerfd, TFD_TIMER_ABSTIME, newTs, oldTs)
+  if r != 0:
+    echo "timerfd_settime error"
+    quit 1
+
+
+# Handle and remove all expired timers from the heap queue
+
+proc handleTimers(ei: EvqImpl) =
+  let t_now = getMonoTime()
+  while ei.timers.len > 0 and t_now >= ei.timers[0].t_when:
+    let t = ei.timers.pop()
+    sendSig(t.actor, MessageEvqTimer(), ei.actor)
+
+
+# Map the file descriptor to a worker ID. For now, this is flat
+# and simple, might need tweaking in the future to avoid stupid
+# distributions
+
+proc mapFdToWorkerId(ei: EvqImpl, fd: cint): int =
+  fd mod ei.workers.len
+
+
+
+# Event queue actor implementation
+
+proc evqActor*(nWorkers: int) {.actor.} =
+
+  # Create event queue instance
+
+  var ei = EvqImpl(
+    actor: self(),
+    timerFd: timerfd_create(CLOCK_MONOTONIC, O_NONBLOCK),
+  )
+
+  # Create worker threads
+
+  var i = 0
+  while i < nWorkers:
+
+    var ew = new EvqWorker
+    ew.id = i
+    ew.actor = self()
+    ew.epfd = epoll_create(1)
+
+    var ee = EpollEvent(events: POLLIN.uint32, data: EpollData(u64: ei.timerfd.uint64))
+    discard epoll_ctl(ew.epfd, EPOLL_CTL_ADD, ei.timerfd, ee.addr)
+
+    createThread(ew.thread, workerThread, ew[].addr)
+
+    ei.workers.add ew
+    inc i
+
+  # Actor main loop handles requests from other actors
+
+  receive:
+
+    (fds, n) = MessagePollResult(count: n, fds: fds):
+      var i = 0
+      while i < n:
+        let fd = fds[i]
+        if fd == ei.timerFd:
+          var val: uint64
+          discard posix.read(ei.timerFd, val.addr, sizeof(val))
+          ei.handleTimers()
+        else:
+          if fd in ei.fds:
+            let actor = ei.fds[fd]
+            send(actor, MessageEvqEvent())
+        inc i
+
+    (interval, src) = MessageEvqAddTimer(interval: interval, src: src):
+      let t_now = getMonoTime()
+      ei.timers.push Timer(actor: src, t_when: t_now + interval)
+      ei.updateTimer()
+
+    (fd, events, src) = MessageEvqAddFd(fd: fd, events: events, src: src):
+      var ee = EpollEvent(events: events.uint32 or EPOLLET.uint32, data: EpollData(u64: fd.uint64))
+      let wid = ei.mapFdToWorkerId(fd)
+      let r = epoll_ctl(ei.workers[wid].epfd, EPOLL_CTL_ADD, fd, ee.addr)
+      if r == 0:
+        ei.fds[fd] = src
       else:
-        break
+        echo "epoll_ctl error ", strerror(errno)
+        quit 1
 
-    var es: array[8, EpollEvent]
-    let timeout = evq.calculateTimeout()
-    trace "epollin"
-    let n = epoll_wait(evq.epfd, es[0].addr, es.len.cint, timeout)
-    trace "epollout " & $n
-
-    evq.handleTimers()
-
-    var i = 0
-    while i < n:
-      let fd = es[i].data.u64.cint
-
-      if fd == fdWake:
-        var b: array[1024, char]
-        var n = posix.read(fdWake, b.addr, sizeof(b))
-
-      elif fd in evq.fds:
-        let actor = evq.fds[fd]
-        trace $actor & ": fd " & $fd & " ready"
-        send(actor, MessageEvqEvent())
-
-      inc i
+    (fd, src) = MessageEvqDelFd(fd: fd, src: src):
+      let wid = ei.mapFdToWorkerId(fd)
+      discard epoll_ctl(ei.workers[wid].epfd, EPOLL_CTL_DEL, fd, nil)
+      ei.fds.del(fd)
 
 
 
@@ -148,49 +214,6 @@ proc delFd*(evq: Evq, fd: cint) {.actor.} =
   send(evq.Actor, MessageEvqDelFd(fd: fd))
 
 
-proc sleep*(evq: Evq, interval: float) {.actor.} =
-  evq.addTimer(interval)
-  discard recv(MessageEvqEvent)
-
-
-proc readAll*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
-  var done: int
-  evq.addFd(fd, POLLIN)
-  while done < size:
-    trace $fd & ": read wait"
-    discard recv(MessageEvqEvent)
-    trace $fd & ": read ready"
-    while done < size:
-      let p = cast[ptr char](cast[Byteaddress](buf) + done)
-      let r = posix.read(fd, p, size-done)
-      trace $fd & " read " & $r
-      if r > 0:
-        done += r
-      if r < size-done:
-        break
-  evq.delFd(fd)
-  return done
-
-
-proc writeAll*(evq: Evq, fd: cint, buf: ptr char, size: int): int {.actor.} =
-  var done = 0
-  evq.addFd(fd, POLLOUT)
-  while done < size:
-    trace $fd & ": write wait"
-    discard recv(MessageEvqEvent)
-    trace $fd & ": write ready"
-    while done < size:
-      let p = cast[ptr char](cast[Byteaddress](buf) + done)
-      let r = posix.write(fd, p, size-done)
-      trace $fd & " write " & $r
-      if r > 0:
-        done += r
-      if r < size-done:
-        break
-  evq.delFd(fd)
-  result = done
-
-
 proc kill*(actor: Evq) {.borrow.}
 
 
@@ -199,14 +222,7 @@ proc link*(actor: Actor, evq: Evq) =
 
 
 proc newEvq*(): Evq {.actor.} =
-
-  var fds: array[2, cint]
-  discard pipe(fds)
-  discard fcntl(fds[1], F_SETFL, O_NONBLOCK)
-
-  var actor = hatch evqActor(fds[0])
-
-  setSignalFd(actor, fds[1])
+  var actor = hatch evqActor(2)
   actor.Evq
 
 
