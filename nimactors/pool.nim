@@ -81,10 +81,12 @@ type
     ex*: ref Exception
 
   ExitReason* = enum
-    Normal, Killed, Error
+    Normal, Killed, Error, Lost
 
   MailFilter* = proc(msg: Message): bool
 
+
+proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = nil)
 
 
 # `Actor` is a custom atomic RC type
@@ -102,6 +104,7 @@ proc `=copy`*(dest: var Actor, actor: Actor) =
 proc `=destroy`*(actor: var Actor) =
   if not actor.p.isNil:
     if actor.p[].rc.load(moAcquire) == 0:
+      actor.p.pool.exit(actor, Lost)
       `=destroy`(actor.p[])
       deallocShared(actor.p)
     else:
@@ -318,6 +321,10 @@ proc kill*(actor: Actor) =
 proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = nil) =
 
   actor.withLock:
+    if actor[].state == Dead:
+      return
+    if reason == Lost:
+      echo actor, " was lost in state ", actor[].state
     actor[].state = Dead
 
   actor.handleSignals()
