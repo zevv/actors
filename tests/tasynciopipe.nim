@@ -61,8 +61,7 @@ proc main() {.actor.} =
     discard recv(MessageExit)
     dec i
 
-  echo "killing evq"
-  kill evq
+  evq.stop()
 
   doAssert rtotal.load() == wtotal.load()
   doAssert rtotal.load() == pipes * chunkCount * chunkSize

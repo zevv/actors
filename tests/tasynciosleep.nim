@@ -20,9 +20,10 @@ proc main2() {.actor.} =
   echo "sleep"
   evq.sleep(0.1)
   echo "slept"
-  evq.sleep(0.1)
-  echo "killing evq"
-  kill evq
+
+  os.sleep(1000)
+  echo "stopping evq"
+  evq.stop()
 
 
 proc go() =

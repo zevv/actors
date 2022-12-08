@@ -23,6 +23,7 @@ type
     id: int
     actor: Actor
     epfd: cint
+    eventfd: cint
     thread: Thread[ptr EvqWorker]
 
   Timer = object
@@ -47,6 +48,8 @@ type
     fd: cint
 
   MessageEvqTimer* = ref object of Message
+  
+  MessageEvqStop* = ref object of Message
 
 
 template `<`(a, b: Timer): bool =
@@ -54,11 +57,14 @@ template `<`(a, b: Timer): bool =
 
 
 proc timerfd_create(clock_id: ClockId, flags: cint): cint
-     {.cdecl, importc: "timerfd_create", header: "<sys/timerfd.h>".}
+                   {.cdecl, importc: "timerfd_create", header: "<sys/timerfd.h>".}
 
 proc timerfd_settime(ufd: cint, flags: cint,                      
-                      utmr: var Itimerspec, otmr: var Itimerspec): cint
-     {.cdecl, importc: "timerfd_settime", header: "<sys/timerfd.h>".}
+                     utmr: var Itimerspec, otmr: var Itimerspec): cint
+                    {.cdecl, importc: "timerfd_settime", header: "<sys/timerfd.h>".}
+
+proc eventfd(count: cuint, flags: cint): cint
+              {.cdecl, importc: "eventfd", header: "<sys/eventfd.h>".}
 
 const TFD_TIMER_ABSTIME: cint = 1
 
@@ -79,6 +85,8 @@ proc workerThread(ew: ptr EvqWorker) =
       var i = 0
       while i < n:
         m.fds[i] = es[i].data.u64.cint
+        if m.fds[i] == ew.eventFd:
+          return
         inc i
       sendSig(ew.actor, m, ew.actor)
 
@@ -139,12 +147,13 @@ proc evqActor*(nWorkers: int) {.actor.} =
     ew.id = i
     ew.actor = self()
     ew.epfd = epoll_create(1)
+    ew.eventfd = eventfd(0, 0)
+    
+    var ee = EpollEvent(events: POLLIN.uint32 or EPOLLET.uint32, data: EpollData(u64: ew.eventfd.uint64))
+    discard epoll_ctl(ew.epfd, EPOLL_CTL_ADD, ew.eventfd, ee.addr)
 
-    var ee = EpollEvent(events: POLLIN.uint32 or EPOLLET.uint32, data: EpollData(u64: ei.timerfd.uint64))
-    let r = epoll_ctl(ew.epfd, EPOLL_CTL_ADD, ei.timerfd, ee.addr)
-    if r != 0:
-      echo "epoll_ctl ", strerror(errno)
-      quit 1
+    ee = EpollEvent(events: POLLIN.uint32 or EPOLLET.uint32, data: EpollData(u64: ei.timerfd.uint64))
+    discard epoll_ctl(ew.epfd, EPOLL_CTL_ADD, ei.timerfd, ee.addr)
 
     createThread(ew.thread, workerThread, ew[].addr)
 
@@ -196,6 +205,18 @@ proc evqActor*(nWorkers: int) {.actor.} =
         quit 1
       ei.fds.del(fd)
 
+    MessageEvqStop():
+      var i = 0
+      while i < nWorkers:
+        var data: uint64 = 1
+        discard write(ei.workers[i].eventfd, data.addr, sizeof(data))
+        ei.workers[i].thread.joinThread()
+        discard close(ei.workers[i].eventfd)
+        discard close(ei.workers[i].epfd)
+        inc i
+      discard close(ei.timerfd)
+      kill self()
+
 
 
 # Public API
@@ -209,7 +230,8 @@ proc addFd*(evq: Evq, fd: cint, events: cshort) {.actor.} =
 proc delFd*(evq: Evq, fd: cint) {.actor.} =
   send(evq.Actor, MessageEvqDelFd(fd: fd))
 
-proc kill*(actor: Evq) {.borrow.}
+proc stop*(evq: Evq) {.actor.} =
+  send(evq.Actor, MessageEvqStop())
 
 proc link*(actor: Actor, evq: Evq) =
   link(actor, evq.Actor)
