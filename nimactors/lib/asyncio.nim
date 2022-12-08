@@ -9,6 +9,8 @@ import std/heapqueue
 import pkg/nimactors
 import pkg/nimactors/lib/evq
 
+export nimactors
+export evq
 
 proc sleep*(evq: Evq, interval: float) {.actor.} =
   evq.addTimer(interval)

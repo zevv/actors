@@ -14,8 +14,6 @@ import std/atomics
 
 proc pipe2*(a: array[0..1, cint], flags: cint): cint {.importc, header: "<unistd.h>".}
 
-import pkg/nimactors
-import pkg/nimactors/lib/evq
 import pkg/nimactors/lib/asyncio
 
 var rtotal: Atomic[int]

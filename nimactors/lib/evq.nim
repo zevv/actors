@@ -164,7 +164,6 @@ proc evqActor*(nWorkers: int) {.actor.} =
           let r = posix.read(ei.timerFd, val.addr, sizeof(val))
           if r != sizeof(val):
             echo "timer read: ", strerror(errno)
-            quit 1
           let t_now = getMonoTime()
           while ei.timers.len > 0 and t_now >= ei.timers[0].t_when:
             let t = ei.timers.pop()
@@ -216,7 +215,7 @@ proc link*(actor: Actor, evq: Evq) =
   link(actor, evq.Actor)
 
 proc newEvq*(): Evq {.actor.} =
-  var actor = hatch evqActor(2)
+  var actor = hatch evqActor(1)
   actor.Evq
 
 
