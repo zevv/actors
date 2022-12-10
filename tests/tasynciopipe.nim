@@ -1,4 +1,8 @@
 
+when defined(cpp):
+  echo "https://github.com/nim-lang/Nim/issues/20081"
+  quit 0
+
 # Send data between pairs of actors through a unix pipe 
 
 import std/os

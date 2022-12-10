@@ -1,4 +1,8 @@
 
+when defined(cpp):
+  echo "https://github.com/nim-lang/Nim/issues/20081"
+  quit 0
+
 import std/os
 import std/syncio
 import std/strformat
