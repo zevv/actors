@@ -20,104 +20,58 @@ type
     c: int
 
   MsgStop = ref object of Message
-  
-  MsgHello = ref object of Message
-
-  MsgSleep = ref object of Message
 
 
-
-# This thing calculates things, but quite slowly
+# This thing calculates things
 
 proc calculator() {.actor.} =
 
-  while true:
-    #os.sleep(10)
-    let m = recv()
+  receive:
+    (src, a, b) = MsgQuestion(src: src, a:a, b:b):
+      send(src, MsgAnswer(c: a + b))
 
-    if m of MsgQuestion:
-      #echo &"calculator got a question from {m.src}"
-      let mq = m.MsgQuestion
-      send(m.src, MsgAnswer(c: mq.a + mq.b))
-
-    if m of MsgStop:
+    MsgStop:
       break
       
   echo "calculator is done"
 
 
-proc bob(idCalculator: Actor, count: int) {.actor.} =
+# This is Bob. Bob asks questions to the calculator
 
+proc bob(calc: Actor, count: int) {.actor.} =
   var i = 0
-
   while i < count:
-   
-    send(idCalculator, MsgQuestion(a: 10, b: i))
-
+    send(calc, MsgQuestion(a: 10, b: i))
     let m = recv()
-
     if m of MsgAnswer:
       let ma = m.MsgAnswer
-      #echo &"bob received an answer from {ma.src}: {ma.c}"
-
     inc i
-
-
-
-proc spin(t: float) =
-  let t_done = epochTime() + t
-  while epochTime() < t_done:
-    discard
-
-
-proc claire(count: int) {.actor.} =
-
-  var i = 0
-  let me = self()
-  while i < count:
-    send(me, MsgHello())
-    discard recv()
-    i = i + 1
-
 
 
 proc main() {.actor.} =
 
+  # Create one calculator and a large number of bobs to give it work.
+ 
   var kids = 0
   
-  #claire(10)
-
-  let i1 = hatch claire(10)
-  inc kids
-
-  let idCalculator = hatch calculator()
+  let calc = hatch calculator()
   
   var i = 0
-  while i < 500:
-    let i2 = hatch bob(idCalculator, 5)
+  while i < 1500:
+    let i2 = hatch bob(calc, 50)
     inc kids
     inc i
 
   # Wait for all the kids to finish, then kill the calculator
 
-  while true:
-
-    let md = recv(MessageExit)
-    kids.dec
-    #echo &"actor {md.actor} died, reason: {md.reason}, {kids} kids left!"
-    if md.reason == Error:
-      echo "An exception occured: ", md.ex.msg, "\n", md.ex.getStackTrace()
-    if kids == 0:
-      send(idCalculator, MsgStop())
-      break
-
-  echo "recv mesg"
-  let m = recv()
-  echo "Got mesg"
+  receive:
+    MessageExit():
+      kids.dec
+      if kids == 0:
+        send(calc, MsgStop())
+        break
 
   echo "main is done"
-
-
 
 
 proc go() =
