@@ -1,9 +1,6 @@
 
 # Send data between pairs of actors through a unix pipe 
 
-when not defined(release):
-  quit 0 # too slow
-
 import std/os
 import std/syncio
 import std/strformat
