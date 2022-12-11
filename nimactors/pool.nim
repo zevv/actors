@@ -405,7 +405,9 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     try:
       {.cast(gcsafe).}:
         while not c.isNil and not c.fn.isNil:
-          c = c.fn(c)
+          let fn = c.fn
+          let c2 = fn(c)
+          c = c2
     except:
       pool.exit(actor, Error)
 
