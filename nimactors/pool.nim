@@ -362,9 +362,12 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
       actor[].c.disarm
       actor[].c = nil
 
-  actor[].msgQueue.clear()
-  actor[].links.setLen(0)
-  actor[].monitors.setLen(0)
+  # These memberse are not usually locked, need to be locked at cleanup time to
+  # make sure the call to exit() from `=destroy` is synchronized.
+  actor.withLock:
+    actor[].msgQueue.clear()
+    actor[].links.setLen(0)
+    actor[].monitors.setLen(0)
 
   pool.actorCount -= 1
 
