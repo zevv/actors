@@ -285,8 +285,8 @@ proc sendCps*(c: sink ActorCont, dst: Actor, sig: sink Signal): Continuation {.c
   if not result.isNil:
     # Fast path: suspend ourselves and pass control to dst
     #echo "  ", src, " => ", dst
+    dst.handleSignals()
     src.withLock:
-      dst.handleSignals()
       src[].state = Suspended
       src[].c = move c
   else:
