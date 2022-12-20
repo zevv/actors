@@ -53,7 +53,8 @@ proc go() =
   when not defined(release):
     count = 20
   if running_on_valgrind():
-    count = 20
+    echo "valgrind detected"
+    count = 7
 
   var pool = newPool(16)
   discard pool.hatch main4(count)
