@@ -15,6 +15,8 @@ else:
   import std/posix
   import std/atomics
 
+  import valgrind
+
   proc pipe2*(a: array[0..1, cint], flags: cint): cint {.importc, header: "<unistd.h>".}
 
   import pkg/nimactors/lib/asyncio
@@ -22,8 +24,12 @@ else:
   var rtotal: Atomic[int]
   var wtotal: Atomic[int]
 
-  const chunkSize = 1024 * 1024
-  const chunkCount = 1024
+  var chunkSize = 1024 * 1024
+  var chunkCount = 1024
+
+  if running_on_valgrind():
+    chunkSize = 128 * 1024
+    chunkCount = 512
 
   proc reader(evq: Evq, fd: cint, n: int) {.actor.} =
     var i: int

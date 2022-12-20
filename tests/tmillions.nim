@@ -1,7 +1,4 @@
 
-when not defined(release):
-  quit 0 # too slow
-
 import std/os
 import std/syncio
 import std/math
@@ -12,6 +9,7 @@ import std/posix
 import std/atomics
 
 import nimactors
+import valgrind
 
 var ntotal: Atomic[int]
 
@@ -50,15 +48,24 @@ proc main4(n: int) {.actor.} =
 
 
 proc go() =
-  let n = 50
+
+  var count = 50
+  when not defined(release):
+    count = 20
+  if running_on_valgrind():
+    count = 20
+
   var pool = newPool(16)
-  discard pool.hatch main4(n)
+  discard pool.hatch main4(count)
   echo "hatched"
+
+  let total = (count ^ 0) + (count ^ 1) + (count ^ 2) + (count ^ 3) + (count ^ 4)
+  echo total
 
   while true:
     let n = ntotal.load()
     echo n
-    if n == 6_377_551:
+    if n == total:
       break
     os.sleep(250)
 
