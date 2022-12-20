@@ -1,6 +1,7 @@
 
 import std/monotimes
 import nimactors
+import valgrind
 
 
 type
@@ -28,7 +29,11 @@ proc bob(alice: Actor) {.actor.} =
 
   let t1 = getMonoTime().ticks.float / 1.0e9
 
-  while i < 1_000_000:
+  var n = 1_000_000
+  if running_on_valgrind():
+    n = 100_000
+
+  while i < n:
     let req = MessageReq(val: i)
     alice.sendCps(req)
     let rsp = recv().MessageRsp
