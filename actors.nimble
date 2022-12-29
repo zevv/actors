@@ -8,4 +8,4 @@ requires "https://github.com/disruptek/balls"
 
 
 task test, "run tests for ci":
-  exec "balls --gc:arc -d:useMalloc"
+  exec "balls --gc:arc -d:useMalloc --path=\"$projectdir\""
