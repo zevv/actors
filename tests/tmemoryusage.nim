@@ -1,8 +1,8 @@
 
 import std/os
 
-import nimactors
-import nimactors/mallinfo
+import actors
+import actors/mallinfo
 
 proc other() {.actor.} =
   discard recv()

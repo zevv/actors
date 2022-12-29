@@ -31,7 +31,7 @@
 
 import std/os
 
-import nimactors
+import actors
 
 proc claire() {.actor.} =
   raise newException(IOError, "flap")

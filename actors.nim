@@ -1,9 +1,9 @@
 
 import cps
-import nimactors/pool
-import nimactors/isisolated
-import nimactors/receivemacro
-import nimactors/api
+import actors/pool
+import actors/isisolated
+import actors/receivemacro
+import actors/api
 
 export Actor
 export ActorCont

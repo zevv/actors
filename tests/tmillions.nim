@@ -8,7 +8,7 @@ import std/times
 import std/posix
 import std/atomics
 
-import nimactors
+import actors
 import valgrind
 
 var ntotal: Atomic[int]

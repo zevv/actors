@@ -1,6 +1,6 @@
 
 import std/monotimes
-import nimactors
+import actors
 import valgrind
 
 

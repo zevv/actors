@@ -12,9 +12,9 @@ import std/posix
 import std/atomics
 
 
-import pkg/nimactors
-import pkg/nimactors/lib/evq
-import pkg/nimactors/lib/asyncio
+import actors
+import actors/lib/evq
+import actors/lib/asyncio
 
 
 proc main2() {.actor.} =

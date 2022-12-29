@@ -2,7 +2,7 @@
 import std/macros
 import std/tables
 
-import ../nimactors
+import actors
 
 
 # From "Programming in Erlang, 2nd edition, page 194":

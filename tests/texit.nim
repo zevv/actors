@@ -1,7 +1,7 @@
 
 import std/os
 
-import nimactors
+import actors
 
 proc alice() {.actor.} =
   while true:

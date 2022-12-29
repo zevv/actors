@@ -3,7 +3,7 @@
 import std/macros
 import std/os
 
-import nimactors
+import actors
 
 type
   Message1 = ref object of Message

@@ -2,7 +2,7 @@
 import std/os
 import std/sugar
 
-import nimactors
+import actors
 
 type
   MessageOne = ref object of Message

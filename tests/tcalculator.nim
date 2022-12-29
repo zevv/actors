@@ -8,7 +8,7 @@ import std/posix
 import std/atomics
 
 
-import nimactors
+import actors
 
 
 type

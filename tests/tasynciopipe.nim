@@ -19,7 +19,7 @@ else:
 
   proc pipe2*(a: array[0..1, cint], flags: cint): cint {.importc, header: "<unistd.h>".}
 
-  import pkg/nimactors/lib/asyncio
+  import actors/lib/asyncio
 
   var rtotal: Atomic[int]
   var wtotal: Atomic[int]

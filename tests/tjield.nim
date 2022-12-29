@@ -1,7 +1,7 @@
 
 import std/os
 
-import nimactors
+import actors
 
 proc thing(i: int) {.actor.} =
   echo "start thing"

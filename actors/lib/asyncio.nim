@@ -6,10 +6,10 @@ import std/tables
 import std/locks
 import std/heapqueue
 
-import pkg/nimactors
-import pkg/nimactors/lib/evq
+import actors
+import actors/lib/evq
 
-export nimactors
+export actors
 export evq
 
 proc sleep*(evq: Evq, interval: float) {.actor.} =
