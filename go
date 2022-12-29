@@ -3,7 +3,7 @@
 set -e
 set -x
 
-nimflags="--verbosity:0 -d:usemalloc --mm:arc --panics:on --debugger:native"
+nimflags="--verbosity:0 --mm:arc --panics:on --debugger:native"
 
 run()
 {
