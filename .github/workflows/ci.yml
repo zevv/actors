@@ -80,8 +80,8 @@ jobs:
         shell: bash
         run: |
           cd project
-          nimble --accept develop
-          nimble test
+          nimble --verbose --accept develop
+          nimble --verbose test
 
       - name: Build docs
         if: ${{ matrix.docs }} == 'true'
