@@ -80,9 +80,13 @@ jobs:
         shell: bash
         run: |
           cd project
+          echo "=========================="
           nimble --accept develop
+          echo "=========================="
           nimble path actors
+          echo "=========================="
           nimble test
+          echo "=========================="
 
       - name: Build docs
         if: ${{ matrix.docs }} == 'true'
