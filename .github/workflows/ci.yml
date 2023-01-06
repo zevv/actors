@@ -81,7 +81,6 @@ jobs:
         run: |
           cd project
           nimble --accept develop
-          ls -l ~/.nimble/pkgs/actors-#head/actors.nimble-link
           nimble test
 
       - name: Build docs
