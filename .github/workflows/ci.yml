@@ -83,6 +83,8 @@ jobs:
           echo "=========================="
           nimble --accept develop
           echo "=========================="
+          nimble list -i
+          echo "=========================="
           nimble path actors
           echo "=========================="
           nimble test
