@@ -39,7 +39,7 @@ proc main() {.actor.} =
 
   echo "all good"
 
-var pool = newPool(4)
+let pool = newPool(4)
 discard pool.hatch main()
 pool.join()
 
