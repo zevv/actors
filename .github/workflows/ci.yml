@@ -81,7 +81,7 @@ jobs:
         run: |
           cd project
           echo "=========================="
-          nimble --accept install balls
+          nimble --accept install "https://github.com/disruptek/balls"
           echo "=========================="
           nimble --accept develop
           echo "=========================="
