@@ -81,6 +81,8 @@ jobs:
         run: |
           cd project
           echo "=========================="
+          nimble --accept install balls
+          echo "=========================="
           nimble --accept develop
           echo "=========================="
           nimble --accept develop
