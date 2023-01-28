@@ -20,7 +20,7 @@ proc alice() {.actor.} =
   while true:
     let req = recv(MessageReq)
     let rsp = MessageRsp(val: req.val * req.val)
-    req.src.sendCps(rsp)
+    req.src.send(rsp)
 
 
 proc bob(alice: Actor) {.actor.} =
@@ -29,13 +29,13 @@ proc bob(alice: Actor) {.actor.} =
 
   let t1 = getMonoTime().ticks.float / 1.0e9
 
-  var n = 1_000_000
+  var n = 100_000
   if running_on_valgrind():
-    n = 100_000
+    n = 1000
 
   while i < n:
     let req = MessageReq(val: i)
-    alice.sendCps(req)
+    alice.send(req)
     let rsp = recv().MessageRsp
     if (i mod 100_000) == 0: echo rsp.val
     inc i
