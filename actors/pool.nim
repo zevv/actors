@@ -103,12 +103,10 @@ proc `=copy`*(dest: var Actor, actor: Actor) =
 
 proc `=destroy`*(actor: var Actor) =
   if not actor.p.isNil:
-    if actor.p[].rc.load(moAcquire) == 0:
-      actor.p.pool.exit(actor, Lost)
+    if actor.p[].rc.fetchSub(1) == 0:
+      #actor.p.pool.exit(actor, Lost)
       `=destroy`(actor.p[])
       deallocShared(actor.p)
-    else:
-      actor.p[].rc.atomicDec()
 
 
 proc `[]`*(actor: Actor): var ActorObject =
@@ -440,8 +438,7 @@ proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false):
   a.pool = pool
   a.rc.store(0)
   a.lock.initLock()
-  var actor = Actor()
-  actor.p = a
+  var actor = Actor(p: a)
 
   c.pool = pool
   c.actor = actor

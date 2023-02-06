@@ -3,7 +3,9 @@
 set -e
 set -x
 
-nimflags="--verbosity:0 --mm:arc --panics:on --debugger:native"
+nimflags="--verbosity:0 --mm:arc --panics:on -d:cpsDebug=cpsTransform --define:cpsNoTrace"
+#nimflags="$nimflags --debugger:native "
+nimflags="$nimflags --passC:-g --passL:-g"
 
 run()
 {
@@ -31,16 +33,16 @@ run()
 			nim c ${nimflags} --passC:-fsanitize=address --passL:-fsanitize=address ${src} && ${bin}
 			;;
 		valgrind)
-			nim c ${nimflags} -d:danger ${src}  && valgrind --error-exitcode=255 --quiet --leak-check=full --show-leak-kinds=all ${bin}
+			nim c ${nimflags} -d:danger ${src}  && valgrind --exit-on-first-error=yes --error-exitcode=255 --quiet --leak-check=full --show-leak-kinds=all ${bin}
 			;;
 		valgrind2)
-			nim c ${nimflags} -d:danger ${src}  && valgrind --error-exitcode=255 --quiet ${bin}
+			nim c ${nimflags} -d:danger ${src}  && valgrind --exit-on-first-error=yes --error-exitcode=255 --quiet ${bin}
 			;;
 		helgrind)
-			nim c ${nimflags} -d:danger ${src}  && valgrind --error-exitcode=255 --quiet --tool=helgrind ${bin}
+			nim c ${nimflags} -d:danger ${src}  && valgrind --exit-on-first-error=yes --error-exitcode=255 --quiet --tool=helgrind ${bin}
 			;;
 		drd)
-			nim c ${nimflags} -d:danger ${src}  && valgrind --error-exitcode=255 --quiet --tool=drd --suppressions=./misc/valgrind-drd-suppressions ${bin}
+			nim c ${nimflags} -d:danger ${src}  && valgrind --exit-on-first-error=yes --error-exitcode=255 --quiet --tool=drd --suppressions=./misc/valgrind-drd-suppressions ${bin}
 			;;
 		bitline)
 			nim c ${nimflags} -d:danger -d:optbitline:bitline.log ${src} && ${bin}
