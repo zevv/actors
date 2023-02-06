@@ -79,6 +79,7 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
+          sudo apt install valgrind
           cd project
           echo "=========================="
           nimble --accept install "https://github.com/disruptek/balls"

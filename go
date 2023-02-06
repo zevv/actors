@@ -3,7 +3,7 @@
 set -e
 set -x
 
-nimflags="--verbosity:0 --mm:arc --panics:on -d:cpsDebug=cpsTransform --define:cpsNoTrace"
+nimflags="-d:usemalloc --verbosity:0 --mm:arc --panics:on -d:cpsDebug=cpsTransform --define:cpsNoTrace"
 #nimflags="$nimflags --debugger:native "
 nimflags="$nimflags --passC:-g --passL:-g"
 

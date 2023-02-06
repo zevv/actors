@@ -16,7 +16,9 @@ import cps
 import bitline
 import isisolated
 import mallinfo
+import valgrind
 
+{.emit:"#include <valgrind/helgrind.h>".}
 
 type
 
@@ -104,9 +106,14 @@ proc `=copy`*(dest: var Actor, actor: Actor) =
 proc `=destroy`*(actor: var Actor) =
   if not actor.p.isNil:
     if actor.p[].rc.fetchSub(1) == 0:
-      #actor.p.pool.exit(actor, Lost)
+      valgrind_annotate_happens_after(actor.p[].rc.addr)
+      valgrind_annotate_happens_before_forget_all(actor.p[].rc.addr)
+      actor.p.pool.exit(actor, Lost)
       `=destroy`(actor.p[])
       deallocShared(actor.p)
+      actor.p = nil
+    else:
+      valgrind_annotate_happens_before(actor.p[].rc.addr)
 
 
 proc `[]`*(actor: Actor): var ActorObject =
