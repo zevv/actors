@@ -35,7 +35,6 @@ export recv
 export self
 export send
 export sendAux
-export sendCps
 export sendSig
 export suspend
 export tryRecv
