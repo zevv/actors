@@ -9,34 +9,31 @@ type
   Foo = ref object
     val: int
 
-  MessageReq = ref object of Message
+  Ping = ref object of Message
     val: int
 
-  MessageRsp = ref object of Message
+  Pong = ref object of Message
     val: int
 
 
 proc alice() {.actor.} =
   while true:
-    var req = recv(MessageReq)
-    var rsp = MessageRsp(val: req.val * req.val)
+    var req = recv(Ping)
+    var rsp = Pong(val: req.val * req.val)
     req.src.send(rsp)
-    req = nil # TODO: cps keeps this in env
-    rsp = nil # TODO: cps keeps this in env
+
+    req = nil
+    rsp = nil
 
 
 proc bob(alice: Actor) {.actor.} =
 
-  var i = 0
-  let n = 10
+  var req = Ping(val: 24)
+  alice.send(req)
+  var rsp = recv().Pong
 
-  while i < n:
-    var req = MessageReq(val: i)
-    alice.send(req)
-    req = nil # TODO: cps keeps this in env
-    var rsp = recv().MessageRsp
-    rsp = nil # TODO: cps keeps this in env
-    inc i
+  req = nil
+  rsp = nil
 
   kill alice
 
