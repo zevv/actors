@@ -37,7 +37,6 @@ export send
 export sendAux
 export sendCps
 export sendSig
-export setSignalFd
 export suspend
 export tryRecv
 export trySuspend

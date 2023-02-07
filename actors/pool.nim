@@ -61,7 +61,6 @@ type
     state* {.guard:lock.}: State
     sigQueue* {.guard:lock.}: Deque[Signal]
     c* {.guard:lock.}: Continuation
-    signalFd* {.guard:lock.}: cint
 
   Actor* = object
     p*: ptr ActorObject
@@ -226,7 +225,6 @@ proc resume*(pool: ptr Pool, actor: Actor) =
         actor[].state = Queued
         pool.workQueue.addLast(actor)
         pool.cond.signal()
-      fd = actor[].signalFd
 
   if fd != 0.cint:
     let b = 'x'
@@ -243,13 +241,6 @@ proc jield*(actor: Actor, c: sink ActorCont) =
       actor[].state = Jielding
     else:
       doAssert actor[].state == Killed
-
-
-# Set signal file descriptor
-
-proc setSignalFd*(actor: Actor, fd: cint) =
-  actor.withLock:
-    actor[].signalFd = fd
 
 
 # Send a message from src to dst
