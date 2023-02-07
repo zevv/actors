@@ -6,20 +6,15 @@ import valgrind
 
 type
 
-  Foo = ref object
-    val: int
-
   Ping = ref object of Message
-    val: int
 
   Pong = ref object of Message
-    val: int
 
 
 proc alice() {.actor.} =
   while true:
     var req = recv(Ping)
-    var rsp = Pong(val: req.val * req.val)
+    var rsp = Pong()
     req.src.send(rsp)
 
     req = nil
@@ -28,7 +23,7 @@ proc alice() {.actor.} =
 
 proc bob(alice: Actor) {.actor.} =
 
-  var req = Ping(val: 24)
+  var req = Ping()
   alice.send(req)
   var rsp = recv().Pong
 
