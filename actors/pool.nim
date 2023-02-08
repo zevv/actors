@@ -251,7 +251,7 @@ proc sendSig*(actor: Actor, sig: sink Signal, src: Actor) =
 
   actor.withLock:
     if actor[].state notin {Killed, Dead}:
-      actor[].sigQueue.addLast(sig)
+      actor[].sigQueue.addLast(move sig)
 
   actor[].pool.resume(actor)
 
@@ -299,7 +299,7 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
         ex = new Exception
         ex.name = exCur.name
         ex.msg = exCur.msg
-      monitor.sendSig(MessageExit(actor: actor, reason: reason, ex: ex), Actor())
+      monitor.sendSig(MessageExit(actor: actor, reason: reason, ex: move ex), Actor())
   else:
     # This actor has no parent, dump termination info to console
     echo &"Actor {actor} has terminated, reason: {reason}"
@@ -317,8 +317,8 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
     actor[].sigQueue.clear()
     # Drop the continuation
     if not actor[].c.isNil:
-      actor[].c.disarm
-      actor[].c = nil
+      disarm actor[].c
+      reset actor[].c
 
   # These memberse are not usually locked, need to be locked at cleanup time to
   # make sure the call to exit() from `=destroy` is synchronized.
@@ -362,30 +362,35 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     # Check the actor's signal queue
     actor.handleSignals()
 
-    # Trampoline the actor's continuation
-    try:
-      {.cast(gcsafe).}:
-        while not c.isNil and not c.fn.isNil:
-          let fn = c.fn
-          let c2 = fn(c)
-          c = c2
-    except:
-      pool.exit(actor, Error)
+    block crashed:
+      # Trampoline the actor's continuation
+      try:
+        {.cast(gcsafe).}:
+          while not c.isNil and not c.fn.isNil:
+            let fn = c.fn
+            var c2 = fn(c)
+            c = move c2
+      except:
+        {.emit: ["/* actor crashed */"].}
+        pool.exit(actor, Error)
+        break crashed
 
-    # Handle new actor state
-    var state: State
-    actor.withLock:
-      state = actor[].state
-    if c.finished:
-      pool.exit(actor, Normal)
-    elif state == Jielding:
-      pool.withLock:
-        actor.withLock:
-          actor[].state = Queued
-          pool.workQueue.addLast(actor)
-          pool.cond.signal()
-    elif state == Killed:
-      pool.exit(actor, Killed)
+      # Handle new actor state
+      var state: State
+      actor.withLock:
+        state = actor[].state
+      if c.finished:
+        {.emit: ["/* actor finished */"].}
+        pool.exit(actor, Normal)
+      elif state == Jielding:
+        pool.withLock:
+          actor.withLock:
+            actor[].state = Queued
+            pool.workQueue.addLast(actor)
+            pool.cond.signal()
+      elif state == Killed:
+        {.emit: ["/* actor killed */"].}
+        pool.exit(move actor, Killed)
 
 
 proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =

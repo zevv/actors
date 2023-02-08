@@ -17,18 +17,12 @@ proc alice() {.actor.} =
     var rsp = Pong()
     req.src.send(rsp)
 
-    req = nil
-    rsp = nil
-
 
 proc bob(alice: Actor) {.actor.} =
 
   var req = Ping()
   alice.send(req)
   var rsp = recv().Pong
-
-  req = nil
-  rsp = nil
 
   kill alice
 
