@@ -72,21 +72,14 @@ proc jield*(c: sink ActorCont): ActorCont {.cpsMagic.} =
   c.actor.jield(c)
 
 
+# Send a message to another actor
+
 proc sendAux*(c: ActorCont, dst: Actor, msg: sink Message) {.cpsVoodoo.} =
   dst.sendSig(msg, c.actor)
-
-# Send a message to another actor
 
 template send*(dst: Actor, msg: typed) =
   assertIsolated(msg)
   dst.sendAux(msg)
-
-# Send a message to another actor
-
-template send*(dst: Actor, msg: typed, src: Actor) =
-  assertIsolated(msg)
-  sendSig(dst, msg, src)
-
 
 # Get message number `idx` from the actors message queue, returns nil
 # if no such message
