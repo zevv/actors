@@ -260,7 +260,7 @@ proc sendSig*(actor: Actor, sig: sink Signal, src: Actor) =
 
   actor.withLock:
     if actor[].state notin {Killed, Dead}:
-      actor[].sigQueue.addLast(sig)
+      actor[].sigQueue.addLast(move sig)
 
   actor[].pool.resume(actor)
 
@@ -284,7 +284,6 @@ proc sendCps*(c: sink ActorCont, dst: Actor, sig: sink Signal): Continuation {.c
     # into the dst sigQueue and pass control to dst
     if dst[].state == Suspended:
       result = move dst[].c
-      dst[].c = nil
       dst[].state = Running
 
   if not result.isNil:
@@ -346,7 +345,7 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
         ex = new Exception
         ex.name = exCur.name
         ex.msg = exCur.msg
-      monitor.sendSig(MessageExit(actor: actor, reason: reason, ex: ex), Actor())
+      monitor.sendSig(MessageExit(actor: actor, reason: reason, ex: move ex), Actor())
   else:
     # This actor has no parent, dump termination info to console
     echo &"Actor {actor} has terminated, reason: {reason}"
@@ -364,8 +363,8 @@ proc exit(pool: ptr Pool, actor: Actor, reason: ExitReason, ex: ref Exception = 
     actor[].sigQueue.clear()
     # Drop the continuation
     if not actor[].c.isNil:
-      actor[].c.disarm
-      actor[].c = nil
+      disarm actor[].c
+      reset actor[].c
 
   # These memberse are not usually locked, need to be locked at cleanup time to
   # make sure the call to exit() from `=destroy` is synchronized.
