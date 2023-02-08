@@ -218,17 +218,12 @@ proc trySuspend*(actor: Actor, c: sink Continuation): bool =
 # on the worker threads
 
 proc resume*(pool: ptr Pool, actor: Actor) =
-  var fd: cint
   pool.withLock:
     actor.withLock:
       if actor[].state == Suspended:
         actor[].state = Queued
         pool.workQueue.addLast(actor)
         pool.cond.signal()
-
-  if fd != 0.cint:
-    let b = 'x'
-    discard posix.write(fd, b.addr, sizeof(b))
 
 
 # Indicate the actor has yielded

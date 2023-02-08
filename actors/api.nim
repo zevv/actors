@@ -155,14 +155,6 @@ template recv*(filter: MailFilter): Message =
       break
   move msg
 
-#template recvIt*(code: typed): Message =
-#  var msg: Message = nil
-#  while msg.isNil:
-#    msg = tryRecv(proc(it: Message): bool = true)
-#    if msg.isNil:
-#      suspend()
-#  msg
-#
 template recv*(T: typedesc): auto =
   var msg: Message
   while true:
