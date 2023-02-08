@@ -408,30 +408,35 @@ proc workerThread(worker: ptr Worker) {.thread.} =
     # Check the actor's signal queue
     actor.handleSignals()
 
-    # Trampoline the actor's continuation
-    try:
-      {.cast(gcsafe).}:
-        while not c.isNil and not c.fn.isNil:
-          let fn = c.fn
-          let c2 = fn(c)
-          c = c2
-    except:
-      pool.exit(actor, Error)
+    block crashed:
+      # Trampoline the actor's continuation
+      try:
+        {.cast(gcsafe).}:
+          while not c.isNil and not c.fn.isNil:
+            let fn = c.fn
+            var c2 = fn(c)
+            c = move c2
+      except:
+        {.emit: ["/* actor crashed */"].}
+        pool.exit(actor, Error)
+        break crashed
 
-    # Handle new actor state
-    var state: State
-    actor.withLock:
-      state = actor[].state
-    if c.finished:
-      pool.exit(actor, Normal)
-    elif state == Jielding:
-      pool.withLock:
-        actor.withLock:
-          actor[].state = Queued
-          pool.workQueue.addLast(actor)
-          pool.cond.signal()
-    elif state == Killed:
-      pool.exit(actor, Killed)
+      # Handle new actor state
+      var state: State
+      actor.withLock:
+        state = actor[].state
+      if c.finished:
+        {.emit: ["/* actor finished */"].}
+        pool.exit(actor, Normal)
+      elif state == Jielding:
+        pool.withLock:
+          actor.withLock:
+            actor[].state = Queued
+            pool.workQueue.addLast(actor)
+            pool.cond.signal()
+      elif state == Killed:
+        {.emit: ["/* actor killed */"].}
+        pool.exit(move actor, Killed)
 
 
 proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false): Actor =
