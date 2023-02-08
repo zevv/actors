@@ -136,20 +136,24 @@ proc tryRecv*(c: ActorCont, filter: MailFilter): Message {.cpsVoodoo.} =
 # Receive a message, blocking
 
 template recv*(): Message =
-  var msg: Message = nil
-  while msg.isNil:
+  var msg: Message
+  while true:
     msg = tryRecv()
     if msg.isNil:
       suspend()
-  msg
+    else:
+      break
+  move msg
 
 template recv*(filter: MailFilter): Message =
-  var msg: Message = nil
-  while msg.isNil:
+  var msg: Message
+  while true:
     msg = tryRecv(filter)
     if msg.isNil:
       suspend()
-  msg
+    else:
+      break
+  move msg
 
 #template recvIt*(code: typed): Message =
 #  var msg: Message = nil
@@ -160,11 +164,11 @@ template recv*(filter: MailFilter): Message =
 #  msg
 #
 template recv*(T: typedesc): auto =
-  var msg: Message = nil
-  while msg.isNil:
+  var msg: Message
+  while true:
     msg = tryRecv(T)
     if msg.isNil:
       suspend()
-  T(msg)
-
-
+    else:
+      break
+  T(move msg)
