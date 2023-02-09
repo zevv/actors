@@ -28,8 +28,8 @@ else:
   var chunkCount = 1024
 
   if running_on_valgrind():
-    chunkSize = 128 * 1024
-    chunkCount = 512
+    chunkSize = 32 * 1024
+    chunkCount = 32
 
   proc reader(evq: Evq, fd: cint, n: int) {.actor.} =
     var i: int

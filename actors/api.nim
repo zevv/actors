@@ -77,9 +77,14 @@ proc jield*(c: sink ActorCont): ActorCont {.cpsMagic.} =
 proc sendAux*(c: ActorCont, dst: Actor, msg: sink Message) {.cpsVoodoo.} =
   dst.sendSig(msg, c.actor)
 
-template send*(dst: Actor, msg: typed) =
+template send*(dst: Actor, msg: var typed) =
   assertIsolated(msg)
   dst.sendAux(move msg)
+
+template send*(dst: Actor, msg: typed) =
+  assertIsolated(msg)
+  var msgCopy = msg
+  dst.sendAux(move msgCopy)
 
 # Get message number `idx` from the actors message queue, returns nil
 # if no such message

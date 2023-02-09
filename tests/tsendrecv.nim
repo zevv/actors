@@ -57,4 +57,5 @@ proc main() =
   pool.join()
 
 
-main()
+for i in 1..4:
+  main()

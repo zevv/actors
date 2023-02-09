@@ -7,8 +7,8 @@ import std/times
 import std/posix
 import std/atomics
 
-
 import actors
+import valgrind
 
 
 type
@@ -55,9 +55,13 @@ proc main() {.actor.} =
   var kids = 0
   
   let calc = hatch calculator()
+
+  var n = 1500
+  if running_on_valgrind():
+    n = 100
   
   var i = 0
-  while i < 1500:
+  while i < n:
     let i2 = hatch bob(calc, 50)
     inc kids
     inc i

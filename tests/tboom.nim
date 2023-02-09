@@ -13,7 +13,7 @@ proc workwork() {.actor.} =
   discard hatch bob()
   discard recv(MessageExit)
 
-while true:
+for i in 1..100:
   let pool = newPool(4)
   discard pool.hatch workwork()
   pool.join()
