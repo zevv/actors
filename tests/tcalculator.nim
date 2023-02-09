@@ -42,7 +42,7 @@ proc bob(calc: Actor, count: int) {.actor.} =
   var i = 0
   while i < count:
     send(calc, MsgQuestion(a: 10, b: i))
-    let m = recv()
+    var m = recv()
     if m of MsgAnswer:
       let ma = m.MsgAnswer
     inc i

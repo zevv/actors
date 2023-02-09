@@ -18,8 +18,8 @@ type
 
 proc alice() {.actor.} =
   while true:
-    let req = recv(MessageReq)
-    let rsp = MessageRsp(val: req.val * req.val)
+    var req = recv(MessageReq)
+    var rsp = MessageRsp(val: req.val * req.val)
     req.src.send(rsp)
 
 
@@ -34,7 +34,7 @@ proc bob(alice: Actor) {.actor.} =
     n = 1000
 
   while i < n:
-    let req = MessageReq(val: i)
+    var req = MessageReq(val: i)
     alice.send(req)
     let rsp = recv().MessageRsp
     if (i mod 100_000) == 0: echo rsp.val
