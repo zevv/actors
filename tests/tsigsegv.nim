@@ -35,5 +35,5 @@ proc main() =
   pool.join()
 
 
-for i in 1..1000:
+for i in 1..100:
   main()

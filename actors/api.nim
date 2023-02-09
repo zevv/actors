@@ -79,7 +79,7 @@ proc sendAux*(c: ActorCont, dst: Actor, msg: sink Message) {.cpsVoodoo.} =
 
 template send*(dst: Actor, msg: typed) =
   assertIsolated(msg)
-  dst.sendAux(msg)
+  dst.sendAux(move msg)
 
 # Get message number `idx` from the actors message queue, returns nil
 # if no such message
