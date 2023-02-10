@@ -123,9 +123,9 @@ proc tryRecv*(c: ActorCont, srcId: Actor): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg.src == srcId
   c.actor.tryRecv(filter)
 
-proc tryRecv*(c: ActorCont, T: typedesc): Message {.cpsVoodoo.} =
+proc tryRecv*[T](c: ActorCont, tipe: typedesc[T]): T {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg of T
-  c.actor.tryRecv(filter)
+  c.actor.tryRecv(filter).T
 
 proc tryRecv*(c: ActorCont, filter: MailFilter): Message {.cpsVoodoo.} =
   c.actor.tryRecv(filter)
@@ -153,12 +153,12 @@ template recv*(filter: MailFilter): Message =
       break
   move msg
 
-template recv*(T: typedesc): auto =
-  var msg: Message
+template recv*[T](tipe: typedesc[T]): T =
+  var msg: T
   while true:
-    msg = tryRecv(T)
+    msg = tryRecv(tipe)
     if msg.isNil:
       suspend()
     else:
       break
-  T(move msg)
+  move msg
