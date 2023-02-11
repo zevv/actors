@@ -1,9 +1,7 @@
 {
    <insert_a_suppression_name_here>
    drd:ConflictingAccess
-   fun:mempcpy
-   fun:_IO_new_file_xsputn
-   fun:_IO_file_xsputn@@GLIBC_2.2.5
+   ...
    fun:fwrite
    ...
 }
