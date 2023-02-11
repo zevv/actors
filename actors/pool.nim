@@ -201,17 +201,17 @@ proc handleSignals(actor: Actor) =
 # continue the continuation. If there are signals waiting, handle those and do
 # not suspend.
 
-proc trySuspend*(actor: Actor, c: sink Continuation): bool =
+proc suspend*(actor: Actor, c: sink Continuation): ActorCont =
 
   actor.withLock:
     if actor[].sigQueue.len == 0:
       actor[].c = move c
       if actor[].state == Running:
         actor[].state = Suspended
-      return true
+      return nil
 
   actor.handleSignals()
-  return false
+  return c.ActorCont
 
 
 # Move the actors continuation to the work queue to schedule execution

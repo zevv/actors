@@ -38,4 +38,3 @@ export sendAux
 export sendSig
 export suspend
 export tryRecv
-export trySuspend

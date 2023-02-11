@@ -60,11 +60,7 @@ proc monitor*(c: ActorCont, slave: Actor) {.cpsVoodoo.} =
 # be resumed by calling toWorkQueue
 
 proc suspend*(c: sink ActorCont): ActorCont {.cpsMagic.} =
-  if c.actor.trySuspend(c):
-    sleep 1
-    return nil
-  else:
-    return c
+  c.actor.suspend(c)
 
 
 # Move a running process to the back of the work queue
