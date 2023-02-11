@@ -3,30 +3,14 @@ import std/monotimes
 import actors
 import valgrind
 
-
 type
-
   Ping = ref object of Message
 
-  Pong = ref object of Message
-
-
 proc alice() {.actor.} =
-  while true:
-    var req = recv(Ping)
-    var rsp = Pong()
-    req.src.send(rsp)
-
+  var req = recv()
 
 proc bob(alice: Actor) {.actor.} =
-
-  var req = Ping()
-  alice.send(req)
-  var rsp = recv().Pong
-
-  kill alice
-
-
+  alice.send(Ping())
 
 proc main() =
   let pool = newPool(4)
@@ -34,6 +18,4 @@ proc main() =
   let b = pool.hatch bob(a)
   pool.join()
 
-
-for i in 1..100:
-  main()
+main()
