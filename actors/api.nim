@@ -61,6 +61,7 @@ proc monitor*(c: ActorCont, slave: Actor) {.cpsVoodoo.} =
 
 proc suspend*(c: sink ActorCont): ActorCont {.cpsMagic.} =
   if c.actor.trySuspend(c):
+    sleep 1
     return nil
   else:
     return c
