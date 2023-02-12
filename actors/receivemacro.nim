@@ -44,17 +44,17 @@ import actors
 #    if not msg.isNil:
 #
 #      if msg of Message1:
-#        discard popMsg()
+#        discard dropMsg(idx)
 #        idx = 0
 #        echo "message1"
 #
 #      elif msg of Message2:
-#        discard popMsg()
+#        discard dropMsg(idx)
 #        idx = 0
 #        echo "message2"
 #
 #      elif msg of Message3:
-#        discard popMsg()
+#        discard dropMsg(idx)
 #        idx = 0
 #        echo "message3"
 #
@@ -105,7 +105,7 @@ proc genMatch(match: NimNode, code: NimNode, captures: seq[NimNode]): NimNode =
   let n = nnkElifBranch.newTree(
     filter,
     quote do:
-      dropMsg()
+      dropMsg(idx)
       idx = 0
       `lets`
       `code`

@@ -83,17 +83,26 @@ template send*(dst: Actor, msg: typed) =
   var msgCopy = msg
   dst.sendAux(move msgCopy)
 
+
 # Get message number `idx` from the actors message queue, returns nil
 # if no such message
-#
+
 proc getMsg*(c: ActorCont, idx: Natural): Message {.cpsVoodoo.} =
   let actor = c.actor
   if idx < actor[].msgQueue.len:
     result = actor[].msgQueue[idx]
 
 
-proc dropMsg*(c: ActorCont) {.cpsVoodoo.} =
-  c.actor[].msgQueue.shrink(1)
+proc dropMsg*(c: ActorCont, idx: Natural) {.cpsVoodoo.} =
+  let len = c.actor[].msgQueue.len
+  if idx == 0:
+    c.actor[].msgQueue.shrink(1, 0)
+  elif idx == len - 1:
+    c.actor[].msgQueue.shrink(0, 1)
+  else:
+    for i in idx..<len-1:
+      c.actor[].msgQueue[i] = c.actor[].msgQueue[i+1]
+    c.actor[].msgQueue.shrink(0, 1)
 
 
 # Try to receive a message, returns `nil` if no messages available or matched
@@ -120,7 +129,7 @@ proc tryRecv*(c: ActorCont, srcId: Actor): Message {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg.src == srcId
   c.actor.tryRecv(filter)
 
-proc tryRecv*[T](c: ActorCont, tipe: typedesc[T]): T {.cpsVoodoo.} =
+proc tryRecv*[T](c: ActorCont, _: typedesc[T]): T {.cpsVoodoo.} =
   proc filter(msg: Message): bool = msg of T
   c.actor.tryRecv(filter).T
 
@@ -150,10 +159,10 @@ template recv*(filter: MailFilter): Message =
       break
   move msg
 
-template recv*[T](tipe: typedesc[T]): T =
+template recv*[T](typ: typedesc[T]): T =
   var msg: T
   while true:
-    msg = tryRecv(tipe)
+    msg = tryRecv(typ)
     if msg.isNil:
       suspend()
     else:
