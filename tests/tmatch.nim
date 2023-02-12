@@ -28,6 +28,7 @@ proc sender(dst: Actor) {.actor.} =
   send(dst, Message1(val: 124))
   send(dst, Message1(val: 123))
   send(dst, Message1(val: 123))
+  send(dst, Message4())
 
 
 proc main() {.actor.} =
@@ -62,6 +63,7 @@ proc main() {.actor.} =
         echo "Got MessageExit, reason: ", r
         break
 
+  discard recv(Message4)
   discard recv(Message4)
   discard recv(Message4)
 
