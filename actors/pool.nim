@@ -101,7 +101,6 @@ proc `=copy`*(dest: var Actor, actor: Actor) =
     `=destroy`(dest)
   dest.p = actor.p
 
-
 proc `=destroy`*(actor: var Actor) =
   if not actor.p.isNil:
     if actor.p[].rc.fetchSub(1) == 0:
@@ -114,16 +113,12 @@ proc `=destroy`*(actor: var Actor) =
     else:
       valgrind_annotate_happens_before(actor.p[].rc.addr)
 
-
 proc `[]`*(actor: Actor): var ActorObject =
   assert not actor.p.isNil
   actor.p[]
 
-
 proc isNil*(actor: Actor): bool =
   actor.p.isNil
-
-
 
 
 # Stringifications
@@ -145,6 +140,7 @@ proc `$`*(m: Message): string =
 
 proc `$`*(c: ActorCont): string =
   if c.isNil: "actorcont.nil" else: "actorcont." & $c.actor
+
 
 # CPS `pass` implementation
 
@@ -251,16 +247,43 @@ proc sendSig*(actor: Actor, sig: sink Signal, src: Actor) =
   actor[].pool.resume(actor)
 
 
+# Get the message from the actor's message queue at index `idx`
+
+proc getMsg*(actor: Actor, idxStart: int): tuple[msg: Message, idxNext: int] =
+  let len = actor[].msgQueue.len
+  var idx = idxStart
+  while idx < len:
+    if not actor[].msgQueue[idx].isnil:
+      result = (actor[].msgQueue[idx], idx)
+      break
+    else:
+      inc idx
+
+
+# Drop the message from the actor's message queue at index `idx`
+
+proc dropMsg*(actor: Actor, idx: Natural) =
+  let len = actor[].msgQueue.len
+  if idx == 0:
+    actor[].msgQueue.shrink(1, 0)
+  elif idx == len - 1:
+    actor[].msgQueue.shrink(0, 1)
+  else:
+    actor[].msgQueue[idx] = nil
+
+
 # Link two processes: if one goes down, the other gets killed as well
 
 proc link*(actor: Actor, peer: Actor) =
   actor[].links.add(peer)
   peer.sendSig(SigLink(), actor)
 
+
 # Monitor a process
 
 proc monitor*(actor: Actor, peer: Actor) =
   peer.sendSig(SigMonitor(), actor)
+
 
 # Kill an actor
 

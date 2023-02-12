@@ -43,11 +43,12 @@ proc main() {.actor.} =
       Message1(val: 123):
         echo "got Message1, val was a direct hit 123"
         inc n
+        doAssert n == 5 or n == 6
 
       (v, w) = Message1(val: v, weight: w):
         echo "got Message1, val was ", v, " weight ", w
         inc n
-        doassert n == 1 or n == 4 or n == 5 or n == 6
+        doassert n == 1 or n == 4
 
       name = Message2(name: name):
         echo "got Message2, name was ", name

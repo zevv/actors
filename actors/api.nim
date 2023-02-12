@@ -84,41 +84,36 @@ template send*(dst: Actor, msg: typed) =
   dst.sendAux(move msgCopy)
 
 
-# Get message number `idx` from the actors message queue, returns nil
+# Get message number `idx` from the actor's message queue, returns nil
 # if no such message
 
-proc getMsg*(c: ActorCont, idx: Natural): Message {.cpsVoodoo.} =
-  let actor = c.actor
-  if idx < actor[].msgQueue.len:
-    result = actor[].msgQueue[idx]
+proc getMsg*(c: ActorCont, idxStart: int): tuple[msg: Message, idxNext: int] {.cpsVoodoo.} =
+  c.actor.getMsg(idxStart)
 
+
+# Drop message `idx` from the actor's message queue.
 
 proc dropMsg*(c: ActorCont, idx: Natural) {.cpsVoodoo.} =
-  let len = c.actor[].msgQueue.len
-  if idx == 0:
-    c.actor[].msgQueue.shrink(1, 0)
-  elif idx == len - 1:
-    c.actor[].msgQueue.shrink(0, 1)
-  else:
-    for i in idx..<len-1:
-      c.actor[].msgQueue[i] = c.actor[].msgQueue[i+1]
-    c.actor[].msgQueue.shrink(0, 1)
+  c.actor.dropMsg(idx)
 
 
 # Try to receive a message, returns `nil` if no messages available or matched
 # the passed filter
 
 proc tryRecv*(actor: Actor, filter: MailFilter = nil): Message =
-  var first = true
-  for msg in actor[].msgQueue.mitems:
-    if not msg.isNil and (filter.isNil or filter(msg)):
-      result = msg
-      if first:
-        actor[].msgQueue.popFirst()
-      else:
-        msg = nil
+  var idx = 0
+  let len = actor[].msgQueue.len
+  while idx < len:
+    var msg: Message
+    (msg, idx) = actor.getMsg(idx)
+    if msg == nil:
       break
-    first = false
+    elif (filter.isNil or filter(msg)):
+      actor.dropMsg(idx)
+      result = msg
+      break
+    else:
+      inc idx
 
 # Receive a message, nonblocking
 

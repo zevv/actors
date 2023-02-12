@@ -145,7 +145,8 @@ macro receive*(n: untyped) =
   let nout = quote do:
     var `idx` = 0
     while true:
-      let `msg` = getMsg(`idx`)
+      var `msg`: Message
+      (`msg`, `idx`) = getMsg(`idx`)
       if not `msg`.isNil:
         `matches`
       else:
