@@ -1,8 +1,5 @@
 
-import std/macros
-import std/tables
-
-import actors
+import std/[macros, tables]
 
 
 # From "Programming in Erlang, 2nd edition, page 194":

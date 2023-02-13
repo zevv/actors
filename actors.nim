@@ -1,4 +1,6 @@
 
+when not defined(gcArc):
+  {.error:"actors requires --mm:arc".}
 
 import cps
 import actors/pool

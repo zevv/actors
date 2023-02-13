@@ -1,16 +1,4 @@
-import std/os
-import std/osproc
-import std/macros
-import std/locks
-import std/deques
-import std/strformat
-import std/tables
-import std/posix
-import std/atomics
-import std/times
-import std/hashes
-import std/posix
-
+import std/[os, osproc, macros, locks, deques, strformat, tables, atomics, times] 
 import cps
 
 import bitline

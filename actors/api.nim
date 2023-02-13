@@ -1,10 +1,5 @@
 
-import std/locks
-import std/macros
-import std/os
-import std/strutils
-import std/deques
-import std/atomics
+import std/[macros, deques]
 
 import cps
 
