@@ -1,7 +1,7 @@
 
 import std/monotimes
 import actors
-import valgrind
+import actors/valgrind
 
 
 type

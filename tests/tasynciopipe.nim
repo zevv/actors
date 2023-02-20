@@ -15,11 +15,10 @@ else:
   import std/posix
   import std/atomics
 
-  import valgrind
+  import actors/valgrind
+  import actors/lib/asyncio
 
   proc pipe2*(a: array[0..1, cint], flags: cint): cint {.importc, header: "<unistd.h>".}
-
-  import actors/lib/asyncio
 
   var rtotal: Atomic[int]
   var wtotal: Atomic[int]

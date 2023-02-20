@@ -9,7 +9,7 @@ import std/posix
 import std/atomics
 
 import actors
-import valgrind
+import actors/valgrind
 
 var ntotal: Atomic[int]
 

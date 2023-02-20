@@ -1,7 +1,6 @@
 
 import std/monotimes
 import actors
-import valgrind
 
 type
   Ping = ref object of Message

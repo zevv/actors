@@ -16,3 +16,5 @@ template valgrind_annotate_happens_before_forget_all*(x) =
     let y {.exportc,inject.} = x
     {.emit:"ANNOTATE_HAPPENS_BEFORE_FORGET_ALL(y);".}
 
+proc running_on_valgrind*(): bool =
+  {.emit: "result = RUNNING_ON_VALGRIND;".}
