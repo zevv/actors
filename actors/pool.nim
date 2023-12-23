@@ -229,7 +229,7 @@ proc sendSig*(actor: Actor, sig: sink Signal, src: Actor) =
   sig.src = src
 
   actor.withLock:
-    if actor[].state notin {Killed, Dead}:
+    if actor[].state notin {State.Killed, State.Dead}:
       actor[].sigQueue.addLast(move sig)
 
   actor[].pool.resume(actor)
