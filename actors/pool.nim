@@ -6,8 +6,6 @@ import isisolated
 import mallinfo
 import valgrind
 
-{.emit:"#include <valgrind/helgrind.h>".}
-
 type
 
   Pool* = object

@@ -1,20 +1,26 @@
 
-{.emit:"#include <valgrind/helgrind.h>".}
+const
+  usesValgrind {.booldefine.} = false
 
-template valgrind_annotate_happens_before*(x) =
-  block:
-    let y {.exportc,inject.} = x
-    {.emit:"ANNOTATE_HAPPENS_BEFORE(y);".}
+when usesValgrind:
+  const header = "<valgrind/helgrind.h>"
 
-template valgrind_annotate_happens_after*(x) =
-  block:
-    let y {.exportc,inject.} = x
-    {.emit:"ANNOTATE_HAPPENS_AFTER(y);".}
+  proc valgrind_annotate_happens_before*(x: pointer) {.
+    header: header, importc: "ANNOTATE_HAPPENS_BEFORE".}
+  proc valgrind_annotate_happens_after*(x: pointer) {.
+    header: header, importc: "ANNOTATE_HAPPENS_AFTER".}
+  proc valgrind_annotate_happens_before_forget_all*(x: pointer) {.
+    header: header, importc: "ANNOTATE_HAPPENS_BEFORE_FORGET_ALL".}
 
-template valgrind_annotate_happens_before_forget_all*(x) =
-  block:
-    let y {.exportc,inject.} = x
-    {.emit:"ANNOTATE_HAPPENS_BEFORE_FORGET_ALL(y);".}
+  let enabled {.header: header, importc: "RUNNING_ON_VALGRIND".}: bool
 
-proc running_on_valgrind*(): bool =
-  {.emit: "result = RUNNING_ON_VALGRIND;".}
+  proc running_on_valgrind*(): bool =
+    {.cast(noSideEffect), cast(gcSafe).}:
+      result = enabled
+
+else:
+  proc valgrind_annotate_happens_before*(x: pointer) = discard
+  proc valgrind_annotate_happens_after*(x: pointer) = discard
+  proc valgrind_annotate_happens_before_forget_all*(x: pointer) = discard
+
+  template running_on_valgrind*(): bool = false
