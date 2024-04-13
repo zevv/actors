@@ -65,6 +65,12 @@ for all the actors to terminate and clean up all the resources used.
 
 
 
+### Valgrind
+
+To make the library aware of being run with helgrind, the program needs to be
+built with `-d:usesValgrind`, otherwise false positives could be reported.
+
+
 ### More to come
 
 Sure.
