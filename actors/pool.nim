@@ -404,7 +404,7 @@ proc hatchAux*(pool: ptr Pool, c: sink ActorCont, parent=Actor(), linked=false):
   assert not isNil(c)
   #assertIsolated(c)
 
-  let a = create(ActorObject)
+  let a = createShared(ActorObject)
   a.pid = pool.actorPidCounter.fetchAdd(1)
   a.pool = pool
   a.rc.store(0)
