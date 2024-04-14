@@ -33,7 +33,7 @@ type
     pool: ptr Pool
 
   State = enum
-    Suspended, Queued, Running, Jielding, Killed, Dead
+    Suspended, Queued, Running, Suspending, Jielding, Killed, Dead
 
   ActorObject* = object
     rc*: Atomic[int]
@@ -189,7 +189,7 @@ proc suspend*(actor: Actor, c: sink Continuation): ActorCont =
     if actor[].sigQueue.len == 0:
       actor[].c = move c
       if actor[].state == Running:
-        actor[].state = Suspended
+        actor[].state = Suspending
       return nil
 
   actor.handleSignals()
@@ -386,6 +386,17 @@ proc workerThread(worker: ptr Worker) {.thread.} =
       if c.finished:
         {.emit: ["/* actor finished */"].}
         pool.exit(actor, Normal)
+      elif state == Suspending:
+        pool.withLock:
+          actor.withLock:
+            # if there are already new signals in the queue, the actor needs
+            # to be queued again right away
+            if actor[].sigQueue.len > 0:
+              actor[].state = Queued
+              pool.workQueue.addLast(actor)
+              pool.cond.signal()
+            else:
+              actor[].state = Suspended
       elif state == Jielding:
         pool.withLock:
           actor.withLock:
